@@ -16,8 +16,6 @@ import { initializeApp, deleteApp } from 'firebase/app';
 import { auth, db, firebaseConfig } from '../firebase/config';
 import type { User, UserRole, RegistrationRequest } from '../types';
 
-// ─── Sign In / Out ────────────────────────────────────────────────────────────
-
 export async function signIn(email: string, password: string): Promise<FirebaseUser> {
   const cred = await signInWithEmailAndPassword(auth, email, password);
   return cred.user;
@@ -31,15 +29,11 @@ export function onAuthChange(callback: (user: FirebaseUser | null) => void) {
   return onAuthStateChanged(auth, callback);
 }
 
-// ─── Get User Profile ─────────────────────────────────────────────────────────
-
 export async function getUserProfile(uid: string): Promise<User | null> {
   const snap = await getDoc(doc(db, 'users', uid));
   if (!snap.exists()) return null;
   return { uid: snap.id, ...snap.data() } as User;
 }
-
-// ─── Subscribe to Users ───────────────────────────────────────────────────────
 
 export function subscribeToUsers(
   callback: (users: User[]) => void,
@@ -48,14 +42,11 @@ export function subscribeToUsers(
   const constraints = companyId
     ? [where('companyId', '==', companyId), orderBy('displayName', 'asc')]
     : [orderBy('displayName', 'asc')];
-
   const q = query(collection(db, 'users'), ...constraints);
   return onSnapshot(q, (snap) => {
     callback(snap.docs.map((d) => ({ uid: d.id, ...d.data() } as User)));
   });
 }
-
-// ─── Create User via Secondary App ───────────────────────────────────────────
 
 export async function createUserWithSecondaryApp(
   email: string,
@@ -67,11 +58,9 @@ export async function createUserWithSecondaryApp(
 ): Promise<string> {
   const secondaryApp = initializeApp(firebaseConfig, 'secondary-' + Date.now());
   const secondaryAuth = getAuth(secondaryApp);
-
   try {
     const cred = await createUserWithEmailAndPassword(secondaryAuth, email, password);
     await updateProfile(cred.user, { displayName });
-
     await setDoc(doc(db, 'users', cred.user.uid), {
       uid: cred.user.uid,
       email,
@@ -82,14 +71,11 @@ export async function createUserWithSecondaryApp(
       status: 'active',
       createdAt: serverTimestamp(),
     });
-
     return cred.user.uid;
   } finally {
     await deleteApp(secondaryApp);
   }
 }
-
-// ─── Update User ──────────────────────────────────────────────────────────────
 
 export async function updateUserProfile(
   uid: string,
@@ -101,8 +87,6 @@ export async function updateUserProfile(
 export async function deleteUserProfile(uid: string): Promise<void> {
   await deleteDoc(doc(db, 'users', uid));
 }
-
-// ─── Registration Requests ────────────────────────────────────────────────────
 
 export async function submitRegistrationRequest(
   data: Omit<RegistrationRequest, 'id' | 'status' | 'createdAt'>
@@ -123,9 +107,7 @@ export function subscribeToRegistrationRequests(
     where('status', '==', 'pending'),
     orderBy('createdAt', 'desc'),
   ];
-  if (companyId) {
-    constraints.push(where('companyId', '==', companyId));
-  }
+  if (companyId) constraints.push(where('companyId', '==', companyId));
   const q = query(collection(db, 'registrationRequests'), ...constraints);
   return onSnapshot(q, (snap) => {
     callback(snap.docs.map((d) => ({ id: d.id, ...d.data() } as RegistrationRequest)));
@@ -143,7 +125,6 @@ export async function approveRegistrationRequest(
     request.companyId,
     request.managerId,
   );
-
   await updateDoc(doc(db, 'registrationRequests', request.id), {
     status: 'approved',
     approvedAt: serverTimestamp(),
@@ -153,8 +134,6 @@ export async function approveRegistrationRequest(
 export async function rejectRegistrationRequest(requestId: string): Promise<void> {
   await deleteDoc(doc(db, 'registrationRequests', requestId));
 }
-
-// ─── Get Potential Managers ───────────────────────────────────────────────────
 
 export async function getPotentialManagers(
   companyId: string,
@@ -169,12 +148,16 @@ export async function getPotentialManagers(
     default: return [];
   }
 
+  // شرطين بس — بدون status عشان منحتاجش Composite Index
   const q = query(
     collection(db, 'users'),
     where('companyId', '==', companyId),
     where('role', '==', managerRole),
-    where('status', '==', 'active')
   );
   const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ uid: d.id, ...d.data() } as User));
+
+  // فلتر status يدوياً في الكود
+  return snap.docs
+    .map((d) => ({ uid: d.id, ...d.data() } as User))
+    .filter((u) => u.status === 'active');
 }
