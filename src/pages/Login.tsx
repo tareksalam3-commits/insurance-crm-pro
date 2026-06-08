@@ -7,7 +7,7 @@ import { Shield, Eye, EyeOff, Loader2 } from 'lucide-react';
 import type { Company, User, UserRole } from '../types';
 import { USER_ROLES, ROLE_LABELS } from '../types';
 
-const JOINABLE_ROLES: UserRole[] = ['general_supervisor', 'supervisor', 'group_leader', 'agent'];
+const JOINABLE_ROLES: UserRole[] = ['sales_manager', 'general_supervisor', 'supervisor', 'group_leader', 'agent'];
 
 export default function Login() {
   const { firebaseUser, loading } = useAuth();
