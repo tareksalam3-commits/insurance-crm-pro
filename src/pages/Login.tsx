@@ -34,15 +34,29 @@ export default function Login() {
   const [joinLoading, setJoinLoading] = useState(false);
 
   useEffect(() => {
-    getCompanies().then(setCompanies).catch(() => {});
+    getCompanies().then((data) => {
+      console.log('companies loaded:', data.length, data);
+      setCompanies(data);
+    }).catch((err) => {
+      console.error('companies error:', err);
+    });
   }, []);
 
   useEffect(() => {
-    if (!joinCompanyId || !joinRole) { setManagers([]); setJoinManagerId(''); return; }
+    if (!joinCompanyId || !joinRole) {
+      setManagers([]);
+      setJoinManagerId('');
+      return;
+    }
+    console.log('fetching managers for:', joinCompanyId, joinRole);
     getPotentialManagers(joinCompanyId, joinRole).then((mgrs) => {
+      console.log('managers found:', mgrs.length, mgrs);
       setManagers(mgrs);
       setJoinManagerId('');
-    }).catch(() => setManagers([]));
+    }).catch((err) => {
+      console.error('managers error:', err);
+      setManagers([]);
+    });
   }, [joinCompanyId, joinRole]);
 
   if (loading) {
