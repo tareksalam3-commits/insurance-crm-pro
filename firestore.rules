@@ -1,0 +1,114 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── helpers ──────────────────────────────────────────────────────────────
+
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    function userRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function userCompany() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId;
+    }
+
+    function isSuperAdmin() {
+      return isAuth() && userRole() == 'super_admin';
+    }
+
+    function isSalesManager() {
+      return isAuth() && userRole() == 'sales_manager';
+    }
+
+    function isManager() {
+      return isAuth() && (
+        userRole() == 'super_admin' ||
+        userRole() == 'sales_manager' ||
+        userRole() == 'general_supervisor' ||
+        userRole() == 'supervisor'
+      );
+    }
+
+    function sameCompany(companyId) {
+      return userCompany() == companyId;
+    }
+
+    // ── companies ─────────────────────────────────────────────────────────────
+
+    match /companies/{companyId} {
+      allow read: if isAuth();
+      allow write: if isSuperAdmin();
+    }
+
+    // ── users ─────────────────────────────────────────────────────────────────
+
+    match /users/{uid} {
+      allow read: if isAuth() && (
+        request.auth.uid == uid ||
+        isSuperAdmin() ||
+        (isManager() && sameCompany(resource.data.companyId))
+      );
+      allow write: if isAuth() && (
+        request.auth.uid == uid ||
+        isSuperAdmin() ||
+        (isSalesManager() && sameCompany(resource.data.companyId))
+      );
+      // Allow creating new user docs from secondary app approval
+      allow create: if isAuth() && (isSuperAdmin() || isSalesManager());
+    }
+
+    // ── registrationRequests ─────────────────────────────────────────────────
+
+    match /registrationRequests/{reqId} {
+      allow read: if isAuth() && (
+        isSuperAdmin() ||
+        (isSalesManager() && sameCompany(resource.data.companyId))
+      );
+      allow create: if true; // Public — anyone can submit a join request
+      allow update, delete: if isAuth() && (
+        isSuperAdmin() ||
+        (isSalesManager() && sameCompany(resource.data.companyId))
+      );
+    }
+
+    // ── agents ───────────────────────────────────────────────────────────────
+
+    match /agents/{agentId} {
+      allow read: if isAuth() && (
+        isSuperAdmin() || sameCompany(resource.data.companyId)
+      );
+      allow write: if isAuth() && (
+        isSuperAdmin() ||
+        (isManager() && sameCompany(resource.data.companyId))
+      );
+    }
+
+    // ── clients ───────────────────────────────────────────────────────────────
+
+    match /clients/{clientId} {
+      allow read: if isAuth() && (
+        isSuperAdmin() || sameCompany(resource.data.companyId)
+      );
+      allow write: if isAuth() && (
+        isSuperAdmin() ||
+        sameCompany(resource.data.companyId)
+      );
+    }
+
+    // ── paymentRecords ────────────────────────────────────────────────────────
+
+    match /paymentRecords/{recordId} {
+      allow read: if isAuth() && (
+        isSuperAdmin() || sameCompany(resource.data.companyId)
+      );
+      allow create: if isAuth() && sameCompany(request.resource.data.companyId);
+      allow delete: if isAuth() && (
+        isSuperAdmin() || isManager()
+      );
+    }
+  }
+}
