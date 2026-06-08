@@ -8,9 +8,10 @@ import type { Company } from '../types';
 const COL = 'companies';
 
 export async function getCompanies(): Promise<Company[]> {
-  const q = query(collection(db, COL), orderBy('name', 'asc'));
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Company));
+  const snap = await getDocs(collection(db, COL));
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() } as Company))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function subscribeToCompanies(callback: (companies: Company[]) => void): () => void {
