@@ -148,16 +148,15 @@ export async function getPotentialManagers(
     default: return [];
   }
 
-  // شرطين بس — بدون status عشان منحتاجش Composite Index
-  const q = query(
-    collection(db, 'users'),
-    where('companyId', '==', companyId),
-    where('role', '==', managerRole),
-  );
+  // جيب كل users وفلتر يدوياً بدون Composite Index
+  const q = query(collection(db, 'users'));
   const snap = await getDocs(q);
 
-  // فلتر status يدوياً في الكود
   return snap.docs
     .map((d) => ({ uid: d.id, ...d.data() } as User))
-    .filter((u) => u.status === 'active');
+    .filter((u) =>
+      u.companyId === companyId &&
+      u.role === managerRole &&
+      u.status === 'active'
+    );
 }
