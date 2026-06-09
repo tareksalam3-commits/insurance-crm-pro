@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Pencil, Trash2, UserCheck, Search } from 'lucide-react';
+import { Pencil, Trash2, UserCheck, Search } from 'lucide-react';
 import { useAgents } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
 import { Modal } from '../components/ui/Modal';
@@ -7,11 +7,11 @@ import { Button } from '../components/ui/Button';
 import type { Agent, ProductionType } from '../types';
 
 const PRODUCTION_TYPE_LABELS: Record<ProductionType, string> = {
-  agent: 'وكيل',
-  group_leader: 'رئيس مجموعة',
-  supervisor: 'مراقب',
+  agent:              'وكيل',
+  group_leader:       'رئيس مجموعة',
+  supervisor:         'مراقب',
   general_supervisor: 'مراقب عام',
-  sales_manager: 'مدير مبيعات',
+  sales_manager:      'مدير مبيعات',
 };
 
 const STATUS_COLORS = {
@@ -22,60 +22,37 @@ const STATUS_COLORS = {
 
 const STATUS_LABELS = { active: 'نشط', inactive: 'غير نشط', suspended: 'موقوف' };
 
-const EMPTY_FORM = {
-  name: '', group: '', productionType: 'agent' as ProductionType,
-  target: 0, status: 'active' as Agent['status'],
-};
-
 export default function Agents() {
   const { user } = useAuth();
-  const { agents, loading, create, update, remove } = useAgents();
+  const { agents, loading, update, remove } = useAgents();
 
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
-  const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [form, setForm] = useState({ name: '', group: '', target: 0, status: 'active' as Agent['status'], productionType: 'agent' as ProductionType });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  const canManage = ['sales_manager', 'super_admin', 'general_supervisor'].includes(user?.role ?? '');
+  const canManage = ['sales_manager', 'super_admin', 'general_supervisor', 'supervisor', 'group_leader'].includes(user?.role ?? '');
 
-  const filtered = agents.filter((a) => {
-    if (!search) return true;
-    return a.name.toLowerCase().includes(search.toLowerCase()) || a.group.toLowerCase().includes(search.toLowerCase());
-  });
-
-  const groups = [...new Set(agents.map((a) => a.group))].filter(Boolean);
-
-  function openAdd() {
-    setEditId(null);
-    setForm({ ...EMPTY_FORM });
-    setError('');
-    setShowModal(true);
-  }
+  const filtered = agents.filter((a) =>
+    !search ||
+    a.name.toLowerCase().includes(search.toLowerCase()) ||
+    a.group.toLowerCase().includes(search.toLowerCase())
+  );
 
   function openEdit(a: Agent) {
     setEditId(a.id);
-    setForm({ name: a.name, group: a.group, productionType: a.productionType, target: a.target, status: a.status });
+    setForm({ name: a.name, group: a.group, target: a.target, status: a.status, productionType: a.productionType });
     setError('');
     setShowModal(true);
   }
 
-  // When productionType is not agent, target must be 0
-  function handleProductionTypeChange(pt: ProductionType) {
-    setForm((f) => ({ ...f, productionType: pt, target: pt === 'agent' ? f.target : 0 }));
-  }
-
   async function handleSubmit() {
-    if (!form.name.trim()) { setError('اسم الوكيل مطلوب'); return; }
-    if (!form.group.trim()) { setError('المجموعة مطلوبة'); return; }
     setSubmitting(true); setError('');
     try {
-      const companyId = user?.companyId ?? '';
-      const payload = { ...form, companyId, target: form.productionType === 'agent' ? form.target : 0 };
-      if (editId) await update(editId, payload);
-      else await create(payload);
+      if (editId) await update(editId, { target: form.target, status: form.status, group: form.group });
       setShowModal(false);
     } catch {
       setError('حدث خطأ، حاول مرة أخرى');
@@ -92,12 +69,10 @@ export default function Agents() {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
+
+      {/* Header — بدون زر إضافة */}
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-gray-900">الوكلاء ({filtered.length})</h1>
-        {canManage && (
-          <Button size="sm" icon={<Plus size={14} />} onClick={openAdd}>إضافة</Button>
-        )}
       </div>
 
       {/* Search */}
@@ -127,6 +102,7 @@ export default function Agents() {
         <div className="text-center py-16 text-gray-400">
           <UserCheck size={40} className="mx-auto mb-3 opacity-30" />
           <p className="text-sm">لا يوجد وكلاء</p>
+          <p className="text-xs mt-1">الوكلاء بيظهروا هنا بعد الموافقة على طلبات الانضمام</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -145,7 +121,7 @@ export default function Agents() {
                     <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-lg">
                       {PRODUCTION_TYPE_LABELS[a.productionType]}
                     </span>
-                    {a.productionType === 'agent' && a.target > 0 && (
+                    {a.target > 0 && (
                       <span className="text-xs bg-purple-50 text-purple-700 px-2 py-0.5 rounded-lg">
                         تارجت: {a.target.toLocaleString('ar-EG')}
                       </span>
@@ -170,15 +146,15 @@ export default function Agents() {
         </div>
       )}
 
-      {/* Add/Edit Modal */}
+      {/* Edit Modal — تعديل فقط (تارجت، مجموعة، حالة) */}
       <Modal
         open={showModal}
         onClose={() => setShowModal(false)}
-        title={editId ? 'تعديل وكيل' : 'إضافة وكيل جديد'}
+        title="تعديل بيانات الوكيل"
         footer={
           <>
             <Button variant="secondary" onClick={() => setShowModal(false)}>إلغاء</Button>
-            <Button loading={submitting} onClick={handleSubmit}>{editId ? 'حفظ' : 'إضافة'}</Button>
+            <Button loading={submitting} onClick={handleSubmit}>حفظ</Button>
           </>
         }
       >
@@ -186,38 +162,23 @@ export default function Agents() {
           {error && <div className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm">{error}</div>}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">الاسم *</label>
-            <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">الاسم</label>
+            <input value={form.name} disabled
+              className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm bg-gray-50 text-gray-400" />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">المجموعة *</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">المجموعة</label>
             <input value={form.group} onChange={(e) => setForm((f) => ({ ...f, group: e.target.value }))}
-              list="groups-list"
               className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            <datalist id="groups-list">
-              {groups.map((g) => <option key={g} value={g} />)}
-            </datalist>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">نوع الإنتاج</label>
-            <select value={form.productionType} onChange={(e) => handleProductionTypeChange(e.target.value as ProductionType)}
-              className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-              {Object.entries(PRODUCTION_TYPE_LABELS).map(([val, lbl]) => (
-                <option key={val} value={val}>{lbl}</option>
-              ))}
-            </select>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">التارجت السنوي (ج.م)</label>
+            <input type="number" value={form.target}
+              onChange={(e) => setForm((f) => ({ ...f, target: Number(e.target.value) }))}
+              className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
-
-          {form.productionType === 'agent' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">التارجت السنوي (ج.م)</label>
-              <input type="number" value={form.target} onChange={(e) => setForm((f) => ({ ...f, target: Number(e.target.value) }))}
-                className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">الحالة</label>
