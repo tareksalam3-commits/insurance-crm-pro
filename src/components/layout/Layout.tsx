@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, UserCheck, FileBarChart, LogOut,
   Menu, X, Wallet, BarChart3, UserCircle2, Bell, Building2,
-  ClipboardList, Shield, ChevronDown,
+  ClipboardList, Shield,
 } from 'lucide-react';
 
 import { useAuth } from '../../hooks/useAuth';
@@ -14,7 +14,7 @@ import { isCollectionMonth, isNewProductionMonth } from '../../services/paymentS
 import type { Client } from '../../types';
 
 export function Layout() {
-  const { user } = useAuth();
+  const { user, permissions } = useAuth();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
@@ -22,36 +22,96 @@ export function Layout() {
 
   useEffect(() => {
     if (!user?.companyId) return;
-    const unsub = subscribeToClients((data) => {
-      const currentMonth = MONTH_LIST[new Date().getMonth()];
-      const currentYear = new Date().getFullYear();
-      const count = data.filter(
-        (c) => c.status !== 'ملغي' && (
-          isCollectionMonth(c, currentMonth, currentYear) ||
-          isNewProductionMonth(c, currentMonth, currentYear)
-        )
-      ).length;
-      setDueCount(count);
-    }, user.companyId, user.role === 'agent' ? { agentName: user.displayName } : undefined);
+    const unsub = subscribeToClients(
+      (data) => {
+        const currentMonth = MONTH_LIST[new Date().getMonth()];
+        const currentYear  = new Date().getFullYear();
+        const count = data.filter(
+          (c) =>
+            c.status !== 'ملغي' &&
+            (
+              isCollectionMonth(c, currentMonth, currentYear) ||
+              isNewProductionMonth(c, currentMonth, currentYear)
+            )
+        ).length;
+        setDueCount(count);
+      },
+      user.companyId,
+      user.role === 'agent' ? { agentName: user.displayName } : undefined
+    );
     return unsub;
   }, [user?.companyId, user?.role, user?.displayName]);
 
   const role = user?.role ?? 'agent';
 
+  // ── Nav items — كل item بيتحكم فيه الصلاحيات ──────────────────────────────
   const navItems = [
-    { to: '/',             label: 'لوحة التحكم',      icon: LayoutDashboard, roles: ['super_admin','sales_manager','general_supervisor','supervisor','group_leader'] },
-    { to: '/my-dashboard', label: 'أدائي',             icon: UserCircle2,     roles: ['agent','group_leader'] },
-    { to: '/clients',      label: 'العملاء',           icon: Users,           roles: ['sales_manager','general_supervisor','supervisor','group_leader','agent'] },
-    { to: '/collections',  label: 'التحصيل',           icon: Wallet,          roles: ['sales_manager','general_supervisor','supervisor','group_leader','agent'], badge: dueCount > 0 ? dueCount : null },
-    { to: '/agents',       label: 'الوكلاء',           icon: UserCheck,       roles: ['sales_manager','general_supervisor','supervisor'] },
-    { to: '/reports',      label: 'التقارير',          icon: FileBarChart,    roles: ['sales_manager','general_supervisor','supervisor','group_leader'] },
-    { to: '/annual',       label: 'الإحصائيات السنوية', icon: BarChart3,      roles: ['sales_manager','general_supervisor'] },
-    { to: '/users',        label: 'المستخدمين',        icon: Shield,          roles: ['super_admin','sales_manager'] },
-    { to: '/requests',     label: 'طلبات الانضمام',    icon: ClipboardList,   roles: ['super_admin','sales_manager'] },
-    { to: '/companies',    label: 'الشركات',           icon: Building2,       roles: ['super_admin'] },
+    {
+      to: '/',
+      label: 'لوحة التحكم',
+      icon: LayoutDashboard,
+      show: permissions.showFullDashboard,
+    },
+    {
+      to: '/my-dashboard',
+      label: 'أدائي',
+      icon: UserCircle2,
+      show: permissions.showMyDashboard,
+    },
+    {
+      to: '/clients',
+      label: 'العملاء',
+      icon: Users,
+      show: permissions.canAddClient || permissions.canViewReports,
+    },
+    {
+      to: '/collections',
+      label: 'التحصيل',
+      icon: Wallet,
+      show: true, // كل الأدوار تشوف التحصيل
+      badge: dueCount > 0 ? dueCount : null,
+    },
+    {
+      to: '/agents',
+      label: 'الوكلاء',
+      icon: UserCheck,
+      // كل الأدوار من sales_manager لـ group_leader تشوف الصفحة
+      // الإضافة والتعديل والحذف بتتحكم فيها الصلاحيات جوه الصفحة نفسها
+      show: ['sales_manager', 'general_supervisor', 'supervisor', 'group_leader'].includes(role),
+    },
+    {
+      to: '/reports',
+      label: 'التقارير',
+      icon: FileBarChart,
+      show: permissions.canViewReports && permissions.reportScope !== 'self',
+    },
+    {
+      to: '/annual',
+      label: 'الإحصائيات السنوية',
+      icon: BarChart3,
+      show: permissions.reportScope === 'all' || permissions.reportScope === 'company',
+    },
+    {
+      to: '/users',
+      label: 'المستخدمين',
+      icon: Shield,
+      show: permissions.canManageUsers,
+    },
+    {
+      to: '/requests',
+      label: 'طلبات الانضمام',
+      icon: ClipboardList,
+      show: permissions.canApproveRequests,
+    },
+    {
+      to: '/companies',
+      label: 'الشركات',
+      icon: Building2,
+      show: permissions.canManageCompanies,
+    },
   ];
 
-  const visible = navItems.filter((item) => item.roles.includes(role));
+  const visible = navItems.filter((item) => item.show);
 
   const closeSidebar = () => setSidebarOpen(false);
 
@@ -65,11 +125,19 @@ export function Layout() {
 
       {/* Overlay */}
       {sidebarOpen && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40" onClick={closeSidebar} />
+        <div
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40"
+          onClick={closeSidebar}
+        />
       )}
 
       {/* Sidebar */}
-      <aside className={`fixed top-0 right-0 h-full z-50 w-72 bg-white border-l border-gray-100 shadow-xl transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+      <aside
+        className={`fixed top-0 right-0 h-full z-50 w-72 bg-white border-l border-gray-100 shadow-xl transition-transform duration-300 ${
+          sidebarOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
+        style={{ paddingTop: 'env(safe-area-inset-top)' }}
+      >
         <div className="flex flex-col h-full">
 
           {/* Logo */}
@@ -84,7 +152,10 @@ export function Layout() {
                   <p className="text-xs text-gray-400">{ROLE_LABELS[role]}</p>
                 </div>
               </div>
-              <button onClick={closeSidebar} className="p-1.5 rounded-xl text-gray-400 hover:bg-gray-100">
+              <button
+                onClick={closeSidebar}
+                className="p-1.5 rounded-xl text-gray-400 hover:bg-gray-100"
+              >
                 <X size={18} />
               </button>
             </div>
@@ -94,6 +165,9 @@ export function Layout() {
           <div className="px-4 py-3 bg-blue-50 mx-4 mt-4 rounded-xl">
             <p className="font-semibold text-gray-900 text-sm truncate">{user?.displayName}</p>
             <p className="text-xs text-gray-500 truncate">{user?.email}</p>
+            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-lg mt-1 inline-block">
+              {ROLE_LABELS[role]}
+            </span>
           </div>
 
           {/* Nav */}
@@ -136,8 +210,11 @@ export function Layout() {
         </div>
       </aside>
 
-      {/* Header */}
-      <header className="sticky top-0 z-30 bg-white border-b border-gray-100 shadow-sm">
+      {/* Header — بيبدأ تحت شريط الحالة */}
+      <header
+        className="sticky top-0 z-30 bg-white border-b border-gray-100 shadow-sm"
+        style={{ paddingTop: 'env(safe-area-inset-top)' }}
+      >
         <div className="flex items-center justify-between px-4 py-3.5">
           <button
             onClick={() => setSidebarOpen(true)}
@@ -170,7 +247,10 @@ export function Layout() {
       </header>
 
       {/* Content */}
-      <main className="p-4 pb-8">
+      <main
+        className="p-4 pb-8"
+        style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom))' }}
+      >
         <Outlet />
       </main>
     </div>
