@@ -17,19 +17,15 @@ export function useClients(filters?: { agentName?: string; group?: string }) {
   useEffect(() => {
     if (!user?.companyId) { setClients([]); setLoading(false); return; }
     setLoading(true);
-    const roleFilters = { ...filters };
+
+    const roleFilters: { agentId?: string; agentName?: string; group?: string } = { ...filters };
 
     if (user.role === 'agent') {
-      // ✅ agent يشوف عملاءه بس
-      roleFilters.agentName = user.displayName;
+      // FIX #4: فلتر بالـ uid الثابت وليس بالاسم القابل للتغيير
+      roleFilters.agentId = user.uid;
     } else if (user.role === 'group_leader') {
-      // ✅ FIX: group_leader يشوف مجموعته بس — كان مش متطبّق
-      // نحتاج agentName الخاص به لاستخدامه كـ group filter
-      // نستخدم group من agent record الخاص به (يتحكم فيه useAgents)
-      // — يتم التصفية في الـ subscribeToClients بالـ group
-      // لأن الـ group_leader نفسه موجود في agents بنفس group
-      // هنفلتر هنا على group من displayName بس ما عندناش ال group جاهز
-      // الـ filter الفعلي بيحصل في الـ subscribeToClients
+      // FIX #3: group_leader يشوف مجموعته فقط عبر groupId
+      if (user.groupId) roleFilters.group = user.groupId;
     }
 
     const unsub = subscribeToClients(
@@ -38,18 +34,22 @@ export function useClients(filters?: { agentName?: string; group?: string }) {
       roleFilters
     );
     return unsub;
-  }, [user?.companyId, user?.role, user?.displayName, filters?.agentName, filters?.group]);
+  // FIX #4: uid بدل displayName في deps، وagentId الفلتر الفعلي
+  }, [user?.companyId, user?.role, user?.uid, user?.groupId, filters?.agentId, filters?.group]);
 
   async function create(data: Omit<Client, 'id' | 'createdAt'>) {
     if (!user?.companyId) return;
-    return addClient({ ...data, companyId: user.companyId });
+    // FIX #4: agentId يُحفظ تلقائياً للوكيل
+    const agentId = user.role === 'agent' ? user.uid : (data.agentId || '');
+    return addClient({ ...data, agentId, companyId: user.companyId });
   }
 
-  async function update(id: string, data: Partial<Client>, opts?: { notifyManagerId?: string; editorName?: string; clientName?: string }) {
-    return updateClient(id, data, opts ? { ...opts, companyId: user?.companyId } : undefined);
+  async function update(id: string, data: Partial<Client>) {
+    return updateClient(id, data);
   }
 
   async function remove(id: string) {
+    // FIX #7: deleteClient الآن يحذف سجلات التحصيل cascade
     return deleteClient(id);
   }
 
@@ -152,10 +152,7 @@ export function useRegistrationRequests() {
   useEffect(() => {
     setLoading(true);
     const companyFilter = user?.role === 'super_admin' ? undefined : user?.companyId;
-    const unsub = subscribeToRegistrationRequests(
-      (data) => { setRequests(data); setLoading(false); },
-      companyFilter
-    );
+    const unsub = subscribeToRegistrationRequests((data) => { setRequests(data); setLoading(false); }, companyFilter);
     return unsub;
   }, [user?.role, user?.companyId]);
 

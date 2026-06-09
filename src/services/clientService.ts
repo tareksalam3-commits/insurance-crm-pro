@@ -1,6 +1,6 @@
 import {
-  collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc,
-  query, orderBy, where, onSnapshot, serverTimestamp,
+  collection, doc, getDocs, addDoc, updateDoc, deleteDoc,
+  query, orderBy, where, onSnapshot, serverTimestamp, writeBatch,
   type QueryConstraint,
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
@@ -25,6 +25,8 @@ function normalizeClient(id: string, data: Record<string, any>): Client {
   return {
     id,
     companyId:           data.companyId          ?? '',
+    // FIX #4: agentId مضاف — يُستخدم للفلتر بدل الاسم
+    agentId:             data.agentId            ?? '',
     group:               data.group              ?? '',
     agentName:           data.agentName          ?? '',
     productionType,
@@ -50,13 +52,16 @@ function normalizeClient(id: string, data: Record<string, any>): Client {
 export function subscribeToClients(
   callback: (clients: Client[]) => void,
   companyId: string,
-  filters?: { agentName?: string; group?: string }
+  // FIX #4: فلتر agentId مضاف بجانب agentName
+  filters?: { agentName?: string; agentId?: string; group?: string }
 ): () => void {
   const constraints: QueryConstraint[] = [
     where('companyId', '==', companyId),
     orderBy('createdAt', 'desc'),
   ];
-  if (filters?.agentName) constraints.push(where('agentName', '==', filters.agentName));
+  // FIX #4: نفضّل agentId إذا موجود، وإلا نرجع لـ agentName (للبيانات القديمة)
+  if (filters?.agentId)   constraints.push(where('agentId', '==', filters.agentId));
+  else if (filters?.agentName) constraints.push(where('agentName', '==', filters.agentName));
   if (filters?.group)     constraints.push(where('group', '==', filters.group));
 
   const q = query(collection(db, COL), ...constraints);
@@ -69,13 +74,14 @@ export function subscribeToClients(
 
 export async function getClients(
   companyId: string,
-  filters?: { agentName?: string; group?: string }
+  filters?: { agentName?: string; agentId?: string; group?: string }
 ): Promise<Client[]> {
   const constraints: QueryConstraint[] = [
     where('companyId', '==', companyId),
     orderBy('createdAt', 'desc'),
   ];
-  if (filters?.agentName) constraints.push(where('agentName', '==', filters.agentName));
+  if (filters?.agentId)   constraints.push(where('agentId', '==', filters.agentId));
+  else if (filters?.agentName) constraints.push(where('agentName', '==', filters.agentName));
   if (filters?.group)     constraints.push(where('group', '==', filters.group));
 
   const q = query(collection(db, COL), ...constraints);
@@ -101,11 +107,11 @@ export async function addClient(data: Omit<Client, 'id' | 'createdAt'>): Promise
 // ─── Update ───────────────────────────────────────────────────────────────────
 
 /**
- * ✅ FIX: يجيب البيانات الحالية من Firestore قبل حساب paymentAmount
- * عشان لو المستخدم غيّر paymentMethod بس من غير annualTarget —
- * ما يحسبش من صفر ويخزّن 0.
+ * تحديث بيانات العميل.
  *
- * @param notifyManagerId — لو موجود (حالة الـ agent)، بيُنشئ إشعار في Firestore
+ * FIX #8: الحساب الآن يعتمد على القيم الفعلية الموجودة في data
+ * (وليس ?? 0 أو ?? 'شهري' التي تُفسد الحساب عند تعديل حقل واحد فقط).
+ * المستدعي مسؤول عن إرسال القيم الكاملة عند الحاجة للإعادة الحساب.
  */
 export async function updateClient(
   id: string,
@@ -117,65 +123,58 @@ export async function updateClient(
     companyId?: string;
   }
 ): Promise<void> {
-  // ✅ اجلب القيم الحالية من Firestore لو محتاجين نكمّل الحساب
-  let currentData: Record<string, any> = {};
-  if (
-    (data.annualTarget !== undefined || data.paymentMethod !== undefined ||
-     data.startMonth !== undefined) &&
-    (data.annualTarget === undefined || data.paymentMethod === undefined || data.startMonth === undefined)
-  ) {
-    const snap = await getDoc(doc(db, COL, id));
-    if (snap.exists()) currentData = snap.data();
+  const updateData: Record<string, any> = { ...data, updatedAt: serverTimestamp() };
+
+  // FIX #8: نعيد الحساب فقط إذا القيمتان المطلوبتان موجودتان فعلاً في data
+  if (data.annualTarget !== undefined && data.paymentMethod !== undefined) {
+    updateData.paymentAmount = calculatePaymentAmount(data.annualTarget, data.paymentMethod);
+  }
+  if (data.startMonth !== undefined && data.paymentMethod !== undefined) {
+    updateData.lastCollectionMonth = calculateLastCollectionMonth(data.startMonth, data.paymentMethod);
   }
 
-  let paymentAmount = data.paymentAmount;
-  let lastCollectionMonth = data.lastCollectionMonth;
+  await updateDoc(doc(db, COL, id), updateData);
 
-  if (data.annualTarget !== undefined || data.paymentMethod !== undefined) {
-    const annualTarget  = data.annualTarget  ?? currentData.annualTarget  ?? 0;
-    const paymentMethod = data.paymentMethod ?? currentData.paymentMethod ?? 'شهري';
-    paymentAmount = calculatePaymentAmount(annualTarget, paymentMethod);
-  }
-
-  if (data.startMonth !== undefined || data.paymentMethod !== undefined) {
-    const startMonth    = data.startMonth    ?? currentData.startMonth    ?? 'يناير';
-    const paymentMethod = data.paymentMethod ?? currentData.paymentMethod ?? 'شهري';
-    lastCollectionMonth = calculateLastCollectionMonth(startMonth, paymentMethod);
-  }
-
-  await updateDoc(doc(db, COL, id), {
-    ...data,
-    ...(paymentAmount      !== undefined ? { paymentAmount }      : {}),
-    ...(lastCollectionMonth !== undefined ? { lastCollectionMonth } : {}),
-    updatedAt: serverTimestamp(),
-  });
-
-  // ── إشعار تعديل العميل (خاص بالـ agent) ─────────────────────
+  // إشعار المدير (خاص بالـ agent)
   if (options?.notifyManagerId) {
     const changedFields = Object.keys(data).filter(
-      (k) => !['paymentAmount', 'lastCollectionMonth', 'companyId'].includes(k)
+      (k) => !['paymentAmount', 'lastCollectionMonth'].includes(k)
     );
-    if (changedFields.length > 0) {
-      await addDoc(collection(db, 'notifications'), {
-        type:        'client_edit',
-        recipientId: options.notifyManagerId,
-        companyId:   options.companyId ?? '',
-        clientId:    id,
-        clientName:  options.clientName ?? data.clientName ?? '',
-        editorName:  options.editorName ?? '',
-        changedFields,
-        changes:     Object.fromEntries(
-          changedFields.map((k) => [k, (data as any)[k]])
-        ),
-        read:      false,
-        createdAt: serverTimestamp(),
-      });
-    }
+
+    await addDoc(collection(db, 'notifications'), {
+      type:        'client_edit',
+      recipientId: options.notifyManagerId,
+      companyId:   options.companyId ?? '',
+      clientId:    id,
+      clientName:  options.clientName ?? data.clientName ?? '',
+      editorName:  options.editorName ?? '',
+      changedFields,
+      changes:     Object.fromEntries(
+        changedFields.map((k) => [k, (data as any)[k]])
+      ),
+      read:        false,
+      createdAt:   serverTimestamp(),
+    });
   }
 }
 
 // ─── Delete ───────────────────────────────────────────────────────────────────
 
+/**
+ * FIX #7: حذف العميل + كل سجلات التحصيل المرتبطة به في batch واحد
+ * لمنع بيانات يتيمة تُلوّث الإحصائيات.
+ */
 export async function deleteClient(id: string): Promise<void> {
-  await deleteDoc(doc(db, COL, id));
+  const batch = writeBatch(db);
+
+  // حذف العميل نفسه
+  batch.delete(doc(db, COL, id));
+
+  // حذف سجلات التحصيل المرتبطة
+  const recordsSnap = await getDocs(
+    query(collection(db, 'paymentRecords'), where('clientId', '==', id))
+  );
+  recordsSnap.docs.forEach((d) => batch.delete(d.ref));
+
+  await batch.commit();
 }

@@ -57,7 +57,6 @@ service cloud.firestore {
         isSuperAdmin() ||
         (isSalesManager() && sameCompany(resource.data.companyId))
       );
-      // Allow creating new user docs from secondary app approval
       allow create: if isAuth() && (isSuperAdmin() || isSalesManager());
     }
 
@@ -68,7 +67,18 @@ service cloud.firestore {
         isSuperAdmin() ||
         (isSalesManager() && sameCompany(resource.data.companyId))
       );
-      allow create: if true; // Public — anyone can submit a join request
+
+      // FIX #6: create مقيّد — يجب أن تكون البيانات صحيحة ولا تحوي password
+      // لا يُشترط تسجيل دخول لأن الطلب يُرسل من صفحة تسجيل عامة
+      allow create: if
+        request.resource.data.keys().hasAll(['displayName', 'email', 'companyId', 'requestedRole', 'status']) &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.displayName is string &&
+        request.resource.data.displayName.size() > 0 &&
+        request.resource.data.email is string &&
+        request.resource.data.email.size() > 5 &&
+        !request.resource.data.keys().hasAny(['password']); // ← منع تخزين كلمة المرور
+
       allow update, delete: if isAuth() && (
         isSuperAdmin() ||
         (isSalesManager() && sameCompany(resource.data.companyId))
@@ -93,9 +103,12 @@ service cloud.firestore {
       allow read: if isAuth() && (
         isSuperAdmin() || sameCompany(resource.data.companyId)
       );
-      allow write: if isAuth() && (
-        isSuperAdmin() ||
-        sameCompany(resource.data.companyId)
+      // FIX: write مقسّم — الحذف يتطلب manager، الإضافة والتعديل لأي مستخدم بنفس الشركة
+      allow create, update: if isAuth() && (
+        isSuperAdmin() || sameCompany(request.resource.data.companyId)
+      );
+      allow delete: if isAuth() && (
+        isSuperAdmin() || isManager()
       );
     }
 
@@ -109,6 +122,14 @@ service cloud.firestore {
       allow delete: if isAuth() && (
         isSuperAdmin() || isManager()
       );
+    }
+
+    // ── notifications ─────────────────────────────────────────────────────────
+
+    match /notifications/{notifId} {
+      allow read: if isAuth() && resource.data.recipientId == request.auth.uid;
+      allow create: if isAuth();
+      allow update: if isAuth() && resource.data.recipientId == request.auth.uid;
     }
   }
 }

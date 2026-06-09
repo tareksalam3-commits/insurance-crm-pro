@@ -1,15 +1,10 @@
 import { useState, useMemo } from 'react';
-import { FileBarChart, Download, TrendingUp, Users, Target, Award, FileText } from 'lucide-react';
+import { FileBarChart, Download, TrendingUp, Users, Target, Award } from 'lucide-react';
 import { useClients, useAgents } from '../hooks/useData';
 import { generateMonthlyReport } from '../services/paymentService';
 import { MONTH_LIST, YEAR_LIST } from '../types';
 import { formatCurrency, formatPercent, getColorByRate } from '../utils/formatUtils';
-import {
-  exportToExcel,
-  exportToPDF,
-  performanceToExportData,
-  buildMonthlyClosingHTML,
-} from '../utils/exportUtils';
+import { exportToExcel, performanceToExportData } from '../utils/exportUtils';
 
 function ProgressBar({ rate }: { rate: number }) {
   const colors = getColorByRate(rate);
@@ -23,12 +18,11 @@ function ProgressBar({ rate }: { rate: number }) {
 export default function Reports() {
   const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState(MONTH_LIST[now.getMonth()]);
-  const [selectedYear,  setSelectedYear]  = useState(now.getFullYear());
-  const [filterGroup,   setFilterGroup]   = useState('');
-  const [exporting,     setExporting]     = useState(false);
+  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
+  const [filterGroup, setFilterGroup] = useState('');
 
   const { clients } = useClients();
-  const { agents }  = useAgents();
+  const { agents } = useAgents();
 
   const groups = [...new Set(agents.map((a) => a.group))].filter(Boolean);
 
@@ -44,29 +38,6 @@ export default function Reports() {
     : performanceMatrix;
 
   const unitColors = getColorByRate(us.achievementRate);
-
-  async function handleExportExcel() {
-    setExporting(true);
-    try {
-      await exportToExcel(
-        performanceToExportData(filteredMatrix),
-        'تقرير الأداء',
-        `report-${selectedMonth}-${selectedYear}`
-      );
-    } finally {
-      setExporting(false);
-    }
-  }
-
-  async function handleExportPDF() {
-    setExporting(true);
-    try {
-      const html = buildMonthlyClosingHTML(report, selectedMonth, selectedYear);
-      await exportToPDF(html, `تقفيل ${selectedMonth} ${selectedYear}`);
-    } finally {
-      setExporting(false);
-    }
-  }
 
   return (
     <div className="space-y-5">
@@ -84,23 +55,10 @@ export default function Reports() {
             className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
             {YEAR_LIST.map((y) => <option key={y} value={y}>{y}</option>)}
           </select>
-
-          {/* ✅ تصدير Excel */}
           <button
-            onClick={handleExportExcel}
-            disabled={exporting}
-            className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
-            <Download size={14} /> Excel
-          </button>
-
-          {/* ✅ تصدير PDF — تقرير تقفيل الشهر */}
-          <button
-            onClick={handleExportPDF}
-            disabled={exporting}
-            className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-          >
-            <FileText size={14} /> تقفيل الشهر
+            onClick={() => exportToExcel(performanceToExportData(filteredMatrix), 'تقرير الأداء', `report-${selectedMonth}-${selectedYear}`)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 hover:bg-gray-50">
+            <Download size={14} /> تصدير
           </button>
         </div>
       </div>
@@ -110,10 +68,10 @@ export default function Reports() {
         <h2 className={`font-bold text-sm mb-3 ${unitColors.text}`}>ملخص الفرع — {selectedMonth} {selectedYear}</h2>
         <div className="grid grid-cols-2 gap-3">
           {[
-            { label: 'الإنتاج الكلي', value: formatCurrency(us.total),   icon: <TrendingUp size={16} /> },
+            { label: 'الإنتاج الكلي', value: formatCurrency(us.total), icon: <TrendingUp size={16} /> },
             { label: 'إنتاج جديد',    value: formatCurrency(us.newProd), icon: <Award size={16} /> },
-            { label: 'التحصيل',       value: formatCurrency(us.coll),    icon: <Target size={16} /> },
-            { label: 'التارجت',       value: formatCurrency(us.target),  icon: <Users size={16} /> },
+            { label: 'التحصيل',       value: formatCurrency(us.coll), icon: <Target size={16} /> },
+            { label: 'التارجت',       value: formatCurrency(us.target), icon: <Users size={16} /> },
           ].map((item) => (
             <div key={item.label} className="bg-white/70 rounded-xl p-3">
               <p className="text-xs text-gray-500 flex items-center gap-1">{item.icon}{item.label}</p>

@@ -58,12 +58,12 @@ export const MONTH_LIST = [
   'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر',
 ] as const;
 
-// ✅ FIX: ديناميكي — يمتد 3 سنوات قبل وبعد السنة الحالية، لا ينتهي بسنة ثابتة
-const _currentYear = new Date().getFullYear();
-export const YEAR_LIST: readonly number[] = Array.from(
+// FIX #9: YEAR_LIST ديناميكي بدل hard-coded حتى 2030
+const currentYear = new Date().getFullYear();
+export const YEAR_LIST = Array.from(
   { length: 10 },
-  (_, i) => _currentYear - 2 + i   // من سنتين قبل لـ 7 سنوات قادمة
-);
+  (_, i) => currentYear - 2 + i
+) as number[];
 
 // ─── Company ──────────────────────────────────────────────────────────────────
 
@@ -95,7 +95,7 @@ export interface RegistrationRequest {
   id: string;
   displayName: string;
   email: string;
-  password?: string; // مؤقت — يُستخدم عند الموافقة ثم يُحذف
+  // FIX #1: كلمة المرور محذوفة من النوع — لا تُخزَّن في Firestore أبداً
   companyId: string;
   companyName: string;
   requestedRole: UserRole;
@@ -124,6 +124,8 @@ export interface Agent {
 export interface Client {
   id: string;
   companyId: string;
+  // FIX #4: agentId مضاف للربط الصحيح بدل الاسم فقط
+  agentId: string;
   agentName: string;
   group: string;
   productionType: ProductionType;
@@ -243,25 +245,6 @@ export interface ClientEditNotification {
   editorName: string;
   changedFields: string[];
   changes: Record<string, any>;
-  read: boolean;
-  createdAt?: any;
-}
-
-// ─── Collection Manager Notification ─────────────────────────────────────────
-
-export interface CollectionManagerNotification {
-  id: string;
-  type: 'collection_done';
-  /** uid المدير المباشر */
-  recipientId: string;
-  companyId: string;
-  clientId: string;
-  clientName: string;
-  agentName: string;
-  amount: number;
-  month: string;
-  year: number;
-  collectedBy: string;
   read: boolean;
   createdAt?: any;
 }

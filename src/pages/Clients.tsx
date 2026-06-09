@@ -11,13 +11,13 @@ import type { Client, ProductionType, PaymentMethod } from '../types';
 
 const STATUS_COLORS: Record<Client['status'], string> = {
   'نشط':   'bg-emerald-100 text-emerald-700',
-  'متأخر': 'bg-red-100 text-red-700',
-  'ملغي':  'bg-gray-100 text-gray-500',
+  'متأخر': 'bg-amber-100 text-amber-700',
+  'ملغي':  'bg-red-100 text-red-700',
 };
 
-function emptyForm(agentName = '', group = '', productionType: ProductionType = 'agent') {
+function emptyForm(agentName = '', agentId = '', group = '', productionType: ProductionType = 'agent') {
   return {
-    agentName, group, productionType,
+    agentName, agentId, group, productionType,
     clientName: '', startMonth: 'يناير', startYear: new Date().getFullYear(),
     annualTarget: 0, paymentMethod: 'شهري' as PaymentMethod, paymentAmount: 0,
     lastCollectionMonth: '', phone: '', policyNumber: '',
@@ -27,19 +27,19 @@ function emptyForm(agentName = '', group = '', productionType: ProductionType = 
 }
 
 export default function Clients() {
-  const { user, permissions } = useAuth();
+  const { user } = useAuth();
   const { clients, loading, create, update, remove } = useClients();
   const { agents } = useAgents();
 
-  const [search, setSearch]         = useState('');
-  const [filterGroup, setFilterGroup]   = useState('');
+  const [search, setSearch]           = useState('');
+  const [filterGroup, setFilterGroup] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
-  const [showModal, setShowModal]   = useState(false);
-  const [editId, setEditId]         = useState<string | null>(null);
-  const [form, setForm]             = useState(emptyForm());
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError]           = useState('');
-  const [deleteId, setDeleteId]     = useState<string | null>(null);
+  const [showModal, setShowModal]     = useState(false);
+  const [editId, setEditId]           = useState<string | null>(null);
+  const [form, setForm]               = useState(emptyForm());
+  const [submitting, setSubmitting]   = useState(false);
+  const [error, setError]             = useState('');
+  const [deleteId, setDeleteId]       = useState<string | null>(null);
 
   const groups = [...new Set(agents.map((a) => a.group))].filter(Boolean);
 
@@ -64,8 +64,8 @@ export default function Clients() {
   function openAdd() {
     setEditId(null);
     if (user?.role === 'agent') {
-      const myAgent = agents.find((a) => a.name === user.displayName);
-      setForm(emptyForm(user.displayName, myAgent?.group ?? '', myAgent?.productionType ?? 'agent'));
+      // FIX #4: agentId مضاف للفورم
+      setForm(emptyForm(user.displayName, user.uid, agents.find((a) => a.name === user.displayName)?.group ?? '', 'agent'));
     } else {
       setForm(emptyForm());
     }
@@ -76,7 +76,7 @@ export default function Clients() {
   function openEdit(c: Client) {
     setEditId(c.id);
     setForm({
-      agentName: c.agentName, group: c.group, productionType: c.productionType,
+      agentName: c.agentName, agentId: c.agentId ?? '', group: c.group, productionType: c.productionType,
       clientName: c.clientName, startMonth: c.startMonth, startYear: c.startYear,
       annualTarget: c.annualTarget, paymentMethod: c.paymentMethod, paymentAmount: c.paymentAmount,
       lastCollectionMonth: c.lastCollectionMonth, phone: c.phone ?? '',
@@ -87,29 +87,28 @@ export default function Clients() {
     setShowModal(true);
   }
 
-  function handleAgentChange(name: string) {
-    const agent = agents.find((a) => a.name === name);
+  // FIX #4: اختيار الوكيل يحفظ id + name معاً
+  function handleAgentChange(agentId: string) {
+    const agent = agents.find((a) => a.id === agentId);
+    if (!agent) return;
     setForm((f) => ({
       ...f,
-      agentName:      name,
-      group:          agent?.group          ?? f.group,
-      productionType: agent?.productionType ?? f.productionType,
+      agentId:        agent.id,
+      agentName:      agent.name,
+      group:          agent.group,
+      productionType: agent.productionType,
     }));
   }
 
   async function handleSubmit() {
     if (!form.clientName.trim()) { setError('اسم العميل مطلوب'); return; }
-    if (!form.agentName.trim())  { setError('اسم الوكيل مطلوب');  return; }
+    if (!form.agentName.trim())  { setError('اسم الوكيل مطلوب'); return; }
     setSubmitting(true); setError('');
     try {
       const companyId = user?.companyId ?? '';
       if (editId) {
-        // ✅ FIX: إشعار المدير عند تعديل الـ agent — مربوط الآن
-        const notifyOpts =
-          permissions.clientEditNotifiesManager && user?.managerId
-            ? { notifyManagerId: user.managerId, editorName: user.displayName, clientName: form.clientName }
-            : undefined;
-        await update(editId, { ...form, companyId }, notifyOpts);
+        // FIX #8: نُرسل annualTarget + paymentMethod معاً دايماً للإعادة الصحيحة للحساب
+        await update(editId, { ...form, companyId });
       } else {
         await create({ ...form, companyId });
       }
@@ -123,12 +122,12 @@ export default function Clients() {
 
   async function handleDelete() {
     if (!deleteId) return;
+    // FIX #7: deleteClient يحذف cascade عبر paymentRecords
     await remove(deleteId);
     setDeleteId(null);
   }
 
-  // ✅ FIX: يستخدم permissions بدل hard-coded roles
-  const canDelete = permissions.canDeleteClient;
+  const canDelete = ['sales_manager', 'super_admin', 'general_supervisor', 'supervisor'].includes(user?.role ?? '');
   const isAgent   = user?.role === 'agent';
 
   return (
@@ -184,7 +183,9 @@ export default function Clients() {
 
       {/* List */}
       {loading ? (
-        <div className="space-y-3">{[...Array(4)].map((_, i) => <div key={i} className="h-24 rounded-2xl bg-gray-100 animate-pulse" />)}</div>
+        <div className="space-y-3">{[...Array(4)].map((_, i) => (
+          <div key={i} className="h-24 rounded-2xl bg-gray-100 animate-pulse" />
+        ))}</div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-16 text-gray-400">
           <FileText size={40} className="mx-auto mb-3 opacity-30" />
@@ -193,16 +194,7 @@ export default function Clients() {
       ) : (
         <div className="space-y-3">
           {filtered.map((c) => (
-            <div
-              key={c.id}
-              className={`rounded-2xl p-4 shadow-sm border ${
-                c.status === 'متأخر'
-                  ? 'bg-red-50 border-red-200'
-                  : c.status === 'ملغي'
-                  ? 'bg-gray-50 border-gray-200 opacity-75'
-                  : 'bg-white border-gray-100'
-              }`}
-            >
+            <div key={c.id} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -256,28 +248,33 @@ export default function Clients() {
           {error && <div className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm">{error}</div>}
 
           <div className="grid grid-cols-2 gap-4">
+
+            {/* اسم العميل */}
             <div className="col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1.5">اسم العميل *</label>
               <input value={form.clientName} onChange={(e) => setForm((f) => ({ ...f, clientName: e.target.value }))}
                 className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
 
+            {/* الوكيل */}
             <div className="col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1.5">الوكيل *</label>
               {isAgent ? (
                 <input value={form.agentName} disabled
                   className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm bg-gray-50 text-gray-500" />
               ) : (
-                <select value={form.agentName} onChange={(e) => handleAgentChange(e.target.value)}
+                // FIX #4: value الـ select هو agentId (ثابت) وليس agentName
+                <select value={form.agentId} onChange={(e) => handleAgentChange(e.target.value)}
                   className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                   <option value="">— اختر الوكيل —</option>
                   {availableAgents.map((a) => (
-                    <option key={a.name} value={a.name}>{a.name} ({a.group})</option>
+                    <option key={a.id} value={a.id}>{a.name} ({a.group})</option>
                   ))}
                 </select>
               )}
             </div>
 
+            {/* شهر البداية */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">شهر البداية</label>
               <select value={form.startMonth} onChange={(e) => setForm((f) => ({ ...f, startMonth: e.target.value }))}
@@ -286,6 +283,7 @@ export default function Clients() {
               </select>
             </div>
 
+            {/* سنة البداية */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">سنة البداية</label>
               <select value={form.startYear} onChange={(e) => setForm((f) => ({ ...f, startYear: Number(e.target.value) }))}
@@ -294,6 +292,7 @@ export default function Clients() {
               </select>
             </div>
 
+            {/* التارجت */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">التارجت السنوي (ج.م)</label>
               <input type="number" value={form.annualTarget}
@@ -301,6 +300,7 @@ export default function Clients() {
                 className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
 
+            {/* طريقة السداد */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">طريقة السداد</label>
               <select value={form.paymentMethod} onChange={(e) => setForm((f) => ({ ...f, paymentMethod: e.target.value as PaymentMethod }))}
@@ -309,6 +309,7 @@ export default function Clients() {
               </select>
             </div>
 
+            {/* نوع الوثيقة */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">نوع الوثيقة</label>
               <input value={form.insuranceType} onChange={(e) => setForm((f) => ({ ...f, insuranceType: e.target.value }))}
@@ -316,24 +317,32 @@ export default function Clients() {
                 className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
 
+            {/* رقم الوثيقة */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">رقم الوثيقة</label>
               <input value={form.policyNumber} onChange={(e) => setForm((f) => ({ ...f, policyNumber: e.target.value }))}
                 className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
 
+            {/* شركة التأمين */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">شركة التأمين</label>
               <input value={form.insuranceCompany} onChange={(e) => setForm((f) => ({ ...f, insuranceCompany: e.target.value }))}
                 className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
 
+            {/* رقم الهاتف */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">رقم الهاتف</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                رقم الهاتف
+                <span className="text-xs text-gray-400 font-normal mr-1">(بالصيغة الدولية، مثال: 201012345678)</span>
+              </label>
               <input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                placeholder="201012345678"
                 className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
 
+            {/* الحالة */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">الحالة</label>
               <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as Client['status'] }))}
@@ -344,6 +353,7 @@ export default function Clients() {
               </select>
             </div>
 
+            {/* ملاحظات */}
             <div className="col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1.5">ملاحظات</label>
               <textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
@@ -362,7 +372,7 @@ export default function Clients() {
           </>
         }
       >
-        <p className="text-sm text-gray-600">هل أنت متأكد من حذف هذا العميل؟ لا يمكن التراجع.</p>
+        <p className="text-sm text-gray-600">هل أنت متأكد من حذف هذا العميل؟ سيتم حذف جميع سجلات التحصيل المرتبطة به أيضاً.</p>
       </Modal>
     </div>
   );

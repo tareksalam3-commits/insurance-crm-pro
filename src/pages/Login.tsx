@@ -52,8 +52,6 @@ export default function Login() {
   // ── Join state ────────────────────────────────────────────────────────────
   const [joinName,       setJoinName]       = useState('');
   const [joinEmail,      setJoinEmail]      = useState('');
-  const [joinPassword,   setJoinPassword]   = useState('');
-  const [joinShowPwd,    setJoinShowPwd]    = useState(false);
   const [joinCompanyId,  setJoinCompanyId]  = useState('');
   const [joinRole,       setJoinRole]       = useState<UserRole>('agent');
   const [joinManagerId,  setJoinManagerId]  = useState('');
@@ -118,7 +116,6 @@ export default function Login() {
     // Validation
     if (!joinName.trim())      { setJoinError('الاسم الكامل مطلوب'); return; }
     if (!joinEmail.trim())     { setJoinError('البريد الإلكتروني مطلوب'); return; }
-    if (joinPassword.length < 6) { setJoinError('كلمة المرور 6 أحرف على الأقل'); return; }
     if (!joinCompanyId)        { setJoinError('اختر الشركة'); return; }
     if (!joinRole)             { setJoinError('اختر الوظيفة'); return; }
 
@@ -137,7 +134,7 @@ export default function Login() {
       await submitRegistrationRequest({
         displayName:   joinName.trim(),
         email:         joinEmail.trim(),
-        password:      joinPassword,
+        // FIX #1: كلمة المرور لا تُرسل للـ backend — المستخدم سيستقبل إيميل لتعيينها
         companyId:     joinCompanyId,
         companyName:   company?.name ?? '',
         requestedRole: joinRole,
@@ -309,30 +306,10 @@ export default function Login() {
                     />
                   </div>
 
-                  {/* 3. كلمة المرور */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      كلمة المرور <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={joinShowPwd ? 'text' : 'password'}
-                        value={joinPassword}
-                        onChange={(e) => setJoinPassword(e.target.value)}
-                        required
-                        minLength={6}
-                        autoComplete="new-password"
-                        className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 pl-12"
-                        placeholder="6 أحرف على الأقل"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setJoinShowPwd(!joinShowPwd)}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                      >
-                        {joinShowPwd ? <EyeOff size={18} /> : <Eye size={18} />}
-                      </button>
-                    </div>
+                  {/* 3. ملاحظة كلمة المرور */}
+                  <div className="flex items-start gap-2 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
+                    <span className="mt-0.5">ℹ️</span>
+                    <span>بعد موافقة المسؤول على طلبك، ستصلك رسالة بريد إلكتروني لتعيين كلمة المرور الخاصة بك.</span>
                   </div>
 
                   {/* 4. الشركة */}

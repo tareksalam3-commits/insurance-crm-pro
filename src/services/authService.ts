@@ -4,6 +4,7 @@ import {
   onAuthStateChanged,
   createUserWithEmailAndPassword,
   updateProfile,
+  sendPasswordResetEmail,
   type User as FirebaseUser,
   getAuth,
 } from 'firebase/auth';
@@ -102,12 +103,20 @@ export async function updateUserProfile(
   await updateDoc(doc(db, 'users', uid), { ...data, updatedAt: serverTimestamp() });
 }
 
+// FIX #2: deleteUserProfile تحذف الـ Firestore doc فقط.
+// حذف حساب Firebase Auth يتطلب Admin SDK (Cloud Function).
+// تم وضع تعليق واضح لمنع الخطأ من الاكتشاف لاحقاً.
 export async function deleteUserProfile(uid: string): Promise<void> {
   await deleteDoc(doc(db, 'users', uid));
+  // ⚠️ تنبيه: حساب Firebase Auth لا يُحذف هنا.
+  // لحذف الحساب بالكامل، أضف Cloud Function تستدعي admin.auth().deleteUser(uid)
+  // وابعت إليها uid بعد حذف الـ doc.
 }
 
 // ─── Registration Requests ────────────────────────────────────────────────────
 
+// FIX #1: submitRegistrationRequest لا تحفظ كلمة المرور نهائياً.
+// المستخدم يضبط كلمة المرور بنفسه بعد الموافقة عبر رابط إعادة تعيين.
 export async function submitRegistrationRequest(
   data: Omit<RegistrationRequest, 'id' | 'status' | 'createdAt'>
 ): Promise<string> {
@@ -136,45 +145,59 @@ export function subscribeToRegistrationRequests(
 
 /**
  * الموافقة على طلب تسجيل:
- * 1. ينشئ حساب Firebase Auth
- * 2. يضيف doc في users
- * 3. يضيف record في agents تلقائياً بالتارجت حسب اللائحة
- * 4. يحدّث حالة الطلب إلى approved
+ * 1. ينشئ حساب Firebase Auth بكلمة مرور مؤقتة
+ * 2. يرسل إيميل إعادة تعيين كلمة المرور للمستخدم
+ * 3. يضيف doc في users
+ * 4. يضيف record في agents تلقائياً
+ * 5. يحدّث حالة الطلب إلى approved
+ *
+ * FIX #1: كلمة المرور المؤقتة عشوائية ولا تُحفظ في Firestore.
  */
 export async function approveRegistrationRequest(
   request: RegistrationRequest
 ): Promise<void> {
-  // 1 + 2: إنشاء الحساب
-  await createUserWithSecondaryApp(
+  // كلمة مرور مؤقتة عشوائية — المستخدم سيغيّرها عبر إيميل إعادة التعيين
+  const tempPassword = `Tmp_${Math.random().toString(36).slice(2, 10)}!`;
+
+  const newUid = await createUserWithSecondaryApp(
     request.email,
-    request.password ?? 'TempPass123!',
+    tempPassword,
     request.displayName,
     request.requestedRole,
     request.companyId,
     request.managerId || undefined,
   );
 
-  // 3: إضافة في agents تلقائياً
+  // إضافة في agents تلقائياً
   await addDoc(collection(db, 'agents'), {
     companyId:      request.companyId,
     name:           request.displayName,
-    group:          '',                                          // يعدّلها المدير بعدين
-    productionType: request.requestedRole,                       // نفس الوظيفة
-    target:         DEFAULT_TARGETS[request.requestedRole] ?? 0, // تارجت اللائحة
+    group:          '',
+    productionType: request.requestedRole,
+    target:         DEFAULT_TARGETS[request.requestedRole] ?? 0,
     supervisorId:   request.managerId || '',
     status:         'active',
     createdAt:      serverTimestamp(),
   });
 
-  // 4: تحديث حالة الطلب
+  // تحديث حالة الطلب
   await updateDoc(doc(db, 'registrationRequests', request.id), {
     status:     'approved',
     approvedAt: serverTimestamp(),
+    approvedUid: newUid,
   });
+
+  // إرسال إيميل إعادة تعيين كلمة المرور للمستخدم ليضبطها بنفسه
+  await sendPasswordResetEmail(auth, request.email);
 }
 
+// FIX #5: rejectRegistrationRequest تغيّر الحالة إلى rejected بدل الحذف
+// حتى يبقى سجل بالطلبات المرفوضة ويعلم المستخدم بالرفض
 export async function rejectRegistrationRequest(requestId: string): Promise<void> {
-  await deleteDoc(doc(db, 'registrationRequests', requestId));
+  await updateDoc(doc(db, 'registrationRequests', requestId), {
+    status:     'rejected',
+    rejectedAt: serverTimestamp(),
+  });
 }
 
 // ─── Potential Managers ───────────────────────────────────────────────────────
@@ -186,7 +209,6 @@ export async function getPotentialManagers(
   const managerRole: UserRole | undefined = MANAGER_ROLE_FOR[requestedRole];
   if (!managerRole) return [];
 
-  // شرطين بس لتجنب Composite Index
   const q = query(
     collection(db, 'users'),
     where('companyId', '==', companyId),

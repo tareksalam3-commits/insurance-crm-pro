@@ -1,5 +1,6 @@
 export function formatCurrency(value: number): string {
-  if (!value || value === 0) return '0 ج.م';
+  if (value == null || isNaN(value)) return '0 ج.م';
+  if (value === 0) return '0 ج.م';
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)} م`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)} ك`;
   return `${value.toLocaleString('ar-EG')} ج.م`;
