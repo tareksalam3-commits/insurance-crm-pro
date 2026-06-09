@@ -1,11 +1,10 @@
 import { useState, useMemo, type ReactNode } from 'react';
 import { TrendingUp, Target, Award, Users, Activity, Crown, Star, AlertTriangle, Building2, BarChart3 } from 'lucide-react';
-import { MONTH_LIST, YEAR_LIST } from '../types';
+import { MONTH_LIST, YEAR_LIST, ROLE_LABELS } from '../types';
 import { generateMonthlyReport } from '../services/paymentService';
 import { useClients, useAgents } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
 import { formatCurrency, formatPercent, getColorByRate, getMotivationMessage } from '../utils/formatUtils';
-import type { AgentPerformance, GroupSummary } from '../types';
 
 function StatCard({ title, value, icon, color = 'text-gray-700', bgColor = 'bg-gray-50', subtitle }: {
   title: string; value: string | number; icon: ReactNode; color?: string; bgColor?: string; subtitle?: string;
@@ -44,33 +43,77 @@ export default function Dashboard() {
   const { clients } = useClients();
   const { agents } = useAgents();
 
+  // فلترة البيانات حسب الدور
+  const filteredAgents = useMemo(() => {
+    if (!user) return agents;
+    switch (user.role) {
+      case 'super_admin':
+      case 'sales_manager':
+        // يشوف الكل
+        return agents;
+      case 'general_supervisor':
+        // يشوف المراقبين والمجموعات التابعة له
+        return agents.filter((a) => a.supervisorId === user.uid || a.productionType === 'general_supervisor');
+      case 'supervisor':
+        // يشوف مجموعاته بس
+        return agents.filter((a) => a.supervisorId === user.uid || a.productionType === 'supervisor');
+      case 'group_leader':
+        // يشوف أعضاء مجموعته بس
+        return agents.filter((a) => a.supervisorId === user.uid || a.productionType === 'group_leader');
+      default:
+        return agents;
+    }
+  }, [agents, user]);
+
+  const filteredClients = useMemo(() => {
+    if (!user) return clients;
+    switch (user.role) {
+      case 'super_admin':
+      case 'sales_manager':
+        return clients;
+      case 'general_supervisor':
+        return clients.filter((c) =>
+          filteredAgents.some((a) => a.name === c.agentName)
+        );
+      case 'supervisor':
+        return clients.filter((c) =>
+          filteredAgents.some((a) => a.name === c.agentName)
+        );
+      case 'group_leader':
+        return clients.filter((c) =>
+          filteredAgents.some((a) => a.name === c.agentName)
+        );
+      default:
+        return clients;
+    }
+  }, [clients, filteredAgents, user]);
+
   const report = useMemo(
-    () => generateMonthlyReport(agents, clients, selectedMonth, selectedYear),
-    [agents, clients, selectedMonth, selectedYear]
+    () => generateMonthlyReport(filteredAgents, filteredClients, selectedMonth, selectedYear),
+    [filteredAgents, filteredClients, selectedMonth, selectedYear]
   );
 
   const { unitSummary: us, performanceMatrix, groupSummaries, champions, underperformers, leadershipProduction } = report;
   const colors = getColorByRate(us.achievementRate);
 
+  const roleLabel = user ? ROLE_LABELS[user.role] : '';
+
   return (
     <div className="space-y-5">
 
       {/* Title + Filters */}
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="text-lg font-bold text-gray-900">لوحة التحكم</h1>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-lg font-bold text-gray-900">لوحة التحكم</h1>
+          <p className="text-xs text-gray-400">{roleLabel}</p>
+        </div>
         <div className="flex gap-2">
-          <select
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
-            className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
+          <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}
+            className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
             {MONTH_LIST.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
-          <select
-            value={selectedYear}
-            onChange={(e) => setSelectedYear(Number(e.target.value))}
-            className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
+          <select value={selectedYear} onChange={(e) => setSelectedYear(Number(e.target.value))}
+            className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
             {YEAR_LIST.map((y) => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>
@@ -87,12 +130,12 @@ export default function Dashboard() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-3">
-        <StatCard title="الإنتاج الكلي" value={formatCurrency(us.total)} icon={<TrendingUp size={20} />} color="text-blue-700" bgColor="bg-blue-50" />
-        <StatCard title="إنتاج جديد" value={formatCurrency(us.newProd)} icon={<Star size={20} />} color="text-emerald-700" bgColor="bg-emerald-50" />
-        <StatCard title="التحصيل" value={formatCurrency(us.coll)} icon={<Activity size={20} />} color="text-amber-700" bgColor="bg-amber-50" />
-        <StatCard title="التارجت الكلي" value={formatCurrency(us.target)} icon={<Target size={20} />} color="text-purple-700" bgColor="bg-purple-50" />
-        <StatCard title="إجمالي الوكلاء" value={us.totalAgents} icon={<Users size={20} />} color="text-gray-700" bgColor="bg-gray-50" />
-        <StatCard title="حققوا التارجت" value={us.targetAchievers} icon={<Award size={20} />} color="text-emerald-700" bgColor="bg-emerald-50"
+        <StatCard title="الإنتاج الكلي"   value={formatCurrency(us.total)}   icon={<TrendingUp size={20} />} color="text-blue-700"    bgColor="bg-blue-50" />
+        <StatCard title="إنتاج جديد"      value={formatCurrency(us.newProd)} icon={<Star size={20} />}       color="text-emerald-700" bgColor="bg-emerald-50" />
+        <StatCard title="التحصيل"         value={formatCurrency(us.coll)}    icon={<Activity size={20} />}   color="text-amber-700"   bgColor="bg-amber-50" />
+        <StatCard title="التارجت الكلي"   value={formatCurrency(us.target)}  icon={<Target size={20} />}     color="text-purple-700"  bgColor="bg-purple-50" />
+        <StatCard title="إجمالي الوكلاء" value={us.totalAgents}             icon={<Users size={20} />}      color="text-gray-700"    bgColor="bg-gray-50" />
+        <StatCard title="حققوا التارجت"  value={us.targetAchievers}         icon={<Award size={20} />}      color="text-emerald-700" bgColor="bg-emerald-50"
           subtitle={`دون 50%: ${us.underperformersCount}`} />
       </div>
 
