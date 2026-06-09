@@ -1,12 +1,15 @@
 import {
-  collection, doc, getDocs, getDoc, addDoc, updateDoc, deleteDoc,
-  query, orderBy, where, onSnapshot, serverTimestamp, type QueryConstraint,
+  collection, doc, getDocs, addDoc, updateDoc, deleteDoc,
+  query, orderBy, where, onSnapshot, serverTimestamp,
+  type QueryConstraint, addDoc as addNotification,
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import type { Client, ProductionType } from '../types';
 import { calculatePaymentAmount, calculateLastCollectionMonth } from './paymentService';
 
 const COL = 'clients';
+
+// ─── Normalize ────────────────────────────────────────────────────────────────
 
 function normalizeClient(id: string, data: Record<string, any>): Client {
   const productionType: ProductionType = data.productionType ?? 'agent';
@@ -42,6 +45,8 @@ function normalizeClient(id: string, data: Record<string, any>): Client {
   };
 }
 
+// ─── Subscribe ────────────────────────────────────────────────────────────────
+
 export function subscribeToClients(
   callback: (clients: Client[]) => void,
   companyId: string,
@@ -60,7 +65,12 @@ export function subscribeToClients(
   });
 }
 
-export async function getClients(companyId: string, filters?: { agentName?: string; group?: string }): Promise<Client[]> {
+// ─── Get ──────────────────────────────────────────────────────────────────────
+
+export async function getClients(
+  companyId: string,
+  filters?: { agentName?: string; group?: string }
+): Promise<Client[]> {
   const constraints: QueryConstraint[] = [
     where('companyId', '==', companyId),
     orderBy('createdAt', 'desc'),
@@ -72,6 +82,8 @@ export async function getClients(companyId: string, filters?: { agentName?: stri
   const snap = await getDocs(q);
   return snap.docs.map((d) => normalizeClient(d.id, d.data()));
 }
+
+// ─── Add ──────────────────────────────────────────────────────────────────────
 
 export async function addClient(data: Omit<Client, 'id' | 'createdAt'>): Promise<string> {
   const paymentAmount = calculatePaymentAmount(data.annualTarget, data.paymentMethod);
@@ -86,7 +98,23 @@ export async function addClient(data: Omit<Client, 'id' | 'createdAt'>): Promise
   return ref.id;
 }
 
-export async function updateClient(id: string, data: Partial<Omit<Client, 'id' | 'createdAt'>>): Promise<void> {
+// ─── Update ───────────────────────────────────────────────────────────────────
+
+/**
+ * تحديث بيانات العميل.
+ * @param notifyManagerId — لو موجود (حالة الـ agent)، بيُنشئ إشعار في Firestore
+ *                          يُرسل للمدير بتفاصيل التغيير.
+ */
+export async function updateClient(
+  id: string,
+  data: Partial<Omit<Client, 'id' | 'createdAt'>>,
+  options?: {
+    notifyManagerId?: string;   // uid المدير المباشر
+    editorName?: string;         // اسم اللي عمل التعديل
+    clientName?: string;         // اسم العميل للإشعار
+    companyId?: string;
+  }
+): Promise<void> {
   let paymentAmount = data.paymentAmount;
   let lastCollectionMonth = data.lastCollectionMonth;
 
@@ -94,11 +122,43 @@ export async function updateClient(id: string, data: Partial<Omit<Client, 'id' |
     paymentAmount = calculatePaymentAmount(data.annualTarget ?? 0, data.paymentMethod ?? 'شهري');
   }
   if (data.startMonth !== undefined || data.paymentMethod !== undefined) {
-    lastCollectionMonth = calculateLastCollectionMonth(data.startMonth ?? 'يناير', data.paymentMethod ?? 'شهري');
+    lastCollectionMonth = calculateLastCollectionMonth(
+      data.startMonth ?? 'يناير',
+      data.paymentMethod ?? 'شهري'
+    );
   }
 
-  await updateDoc(doc(db, COL, id), { ...data, paymentAmount, lastCollectionMonth, updatedAt: serverTimestamp() });
+  await updateDoc(doc(db, COL, id), {
+    ...data,
+    paymentAmount,
+    lastCollectionMonth,
+    updatedAt: serverTimestamp(),
+  });
+
+  // ── إشعار المدير (خاص بالـ agent) ──────────────────────────
+  if (options?.notifyManagerId) {
+    const changedFields = Object.keys(data).filter(
+      (k) => !['paymentAmount', 'lastCollectionMonth'].includes(k)
+    );
+
+    await addDoc(collection(db, 'notifications'), {
+      type:        'client_edit',
+      recipientId: options.notifyManagerId,
+      companyId:   options.companyId ?? '',
+      clientId:    id,
+      clientName:  options.clientName ?? data.clientName ?? '',
+      editorName:  options.editorName ?? '',
+      changedFields,
+      changes:     Object.fromEntries(
+        changedFields.map((k) => [k, (data as any)[k]])
+      ),
+      read:        false,
+      createdAt:   serverTimestamp(),
+    });
+  }
 }
+
+// ─── Delete ───────────────────────────────────────────────────────────────────
 
 export async function deleteClient(id: string): Promise<void> {
   await deleteDoc(doc(db, COL, id));

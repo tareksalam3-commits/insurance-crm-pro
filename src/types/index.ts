@@ -22,12 +22,12 @@ export const USER_ROLES: UserRole[] = [
 ];
 
 export const ROLE_LABELS: Record<UserRole, string> = {
-  super_admin: 'مدير عام',
-  sales_manager: 'مدير مبيعات',
+  super_admin:        'مدير عام',
+  sales_manager:      'مدير مبيعات',
   general_supervisor: 'مراقب عام',
-  supervisor: 'مراقب',
-  group_leader: 'رئيس مجموعة',
-  agent: 'وكيل',
+  supervisor:         'مراقب',
+  group_leader:       'رئيس مجموعة',
+  agent:              'وكيل',
 };
 
 // ─── Production Types ─────────────────────────────────────────────────────────
@@ -90,7 +90,7 @@ export interface RegistrationRequest {
   id: string;
   displayName: string;
   email: string;
-  password?: string; // stored temporarily, hashed on approval
+  password?: string; // مؤقت — يُستخدم عند الموافقة ثم يُحذف
   companyId: string;
   companyName: string;
   requestedRole: UserRole;
@@ -224,4 +224,24 @@ export interface CollectionNotification {
   paymentMethod: PaymentMethod;
   dueMonth: string;
   dueYear: number;
+}
+
+// ─── Client Edit Notification (إشعار تعديل العميل من الـ agent) ──────────────
+
+export interface ClientEditNotification {
+  id: string;
+  type: 'client_edit';
+  /** uid المدير الذي يستقبل الإشعار */
+  recipientId: string;
+  companyId: string;
+  clientId: string;
+  clientName: string;
+  /** اسم الـ agent الذي أجرى التعديل */
+  editorName: string;
+  /** أسماء الحقول التي تغيرت */
+  changedFields: string[];
+  /** القيم الجديدة لكل حقل تغير */
+  changes: Record<string, any>;
+  read: boolean;
+  createdAt?: any;
 }

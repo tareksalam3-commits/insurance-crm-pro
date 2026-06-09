@@ -1,20 +1,25 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useMemo, type ReactNode } from 'react';
 import { onAuthChange } from '../services/authService';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import type { User as FirebaseUser } from 'firebase/auth';
 import type { User } from '../types';
+import { getPermissions, type Permissions } from './usePermissions';
 
 interface AuthContextValue {
   firebaseUser: FirebaseUser | null;
   user: User | null;
   loading: boolean;
+  permissions: Permissions;
 }
+
+const defaultPermissions = getPermissions('agent');
 
 const AuthContext = createContext<AuthContextValue>({
   firebaseUser: null,
   user: null,
   loading: true,
+  permissions: defaultPermissions,
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -50,8 +55,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // حساب الصلاحيات تلقائياً عند تغيير الدور
+  const permissions = useMemo(
+    () => (user ? getPermissions(user.role) : defaultPermissions),
+    [user?.role]
+  );
+
   return (
-    <AuthContext.Provider value={{ firebaseUser, user, loading }}>
+    <AuthContext.Provider value={{ firebaseUser, user, loading, permissions }}>
       {children}
     </AuthContext.Provider>
   );
