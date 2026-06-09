@@ -58,7 +58,12 @@ export const MONTH_LIST = [
   'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر',
 ] as const;
 
-export const YEAR_LIST = [2024, 2025, 2026, 2027, 2028, 2029, 2030] as const;
+// ✅ FIX: ديناميكي — يمتد 3 سنوات قبل وبعد السنة الحالية، لا ينتهي بسنة ثابتة
+const _currentYear = new Date().getFullYear();
+export const YEAR_LIST: readonly number[] = Array.from(
+  { length: 10 },
+  (_, i) => _currentYear - 2 + i   // من سنتين قبل لـ 7 سنوات قادمة
+);
 
 // ─── Company ──────────────────────────────────────────────────────────────────
 
@@ -226,22 +231,37 @@ export interface CollectionNotification {
   dueYear: number;
 }
 
-// ─── Client Edit Notification (إشعار تعديل العميل من الـ agent) ──────────────
+// ─── Client Edit Notification ─────────────────────────────────────────────────
 
 export interface ClientEditNotification {
   id: string;
   type: 'client_edit';
-  /** uid المدير الذي يستقبل الإشعار */
   recipientId: string;
   companyId: string;
   clientId: string;
   clientName: string;
-  /** اسم الـ agent الذي أجرى التعديل */
   editorName: string;
-  /** أسماء الحقول التي تغيرت */
   changedFields: string[];
-  /** القيم الجديدة لكل حقل تغير */
   changes: Record<string, any>;
+  read: boolean;
+  createdAt?: any;
+}
+
+// ─── Collection Manager Notification ─────────────────────────────────────────
+
+export interface CollectionManagerNotification {
+  id: string;
+  type: 'collection_done';
+  /** uid المدير المباشر */
+  recipientId: string;
+  companyId: string;
+  clientId: string;
+  clientName: string;
+  agentName: string;
+  amount: number;
+  month: string;
+  year: number;
+  collectedBy: string;
   read: boolean;
   createdAt?: any;
 }

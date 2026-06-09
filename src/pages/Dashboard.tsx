@@ -247,7 +247,7 @@ export default function Dashboard() {
                 {leadershipProduction.map((l) => (
                   <tr key={l.name} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 font-medium text-gray-900 text-xs">{l.name}</td>
-                    <td className="px-4 py-3 text-xs text-gray-500">{ROLE_LABELS[l.role as keyof typeof ROLE_LABELS] ?? l.role}</td>
+                    <td className="px-4 py-3 text-xs text-gray-500">{l.role}</td>
                     <td className="px-4 py-3 font-bold text-gray-900 text-xs">{formatCurrency(l.total)}</td>
                   </tr>
                 ))}

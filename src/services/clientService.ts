@@ -1,5 +1,5 @@
 import {
-  collection, doc, getDocs, addDoc, updateDoc, deleteDoc,
+  collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc,
   query, orderBy, where, onSnapshot, serverTimestamp,
   type QueryConstraint,
 } from 'firebase/firestore';
@@ -101,60 +101,76 @@ export async function addClient(data: Omit<Client, 'id' | 'createdAt'>): Promise
 // ─── Update ───────────────────────────────────────────────────────────────────
 
 /**
- * تحديث بيانات العميل.
+ * ✅ FIX: يجيب البيانات الحالية من Firestore قبل حساب paymentAmount
+ * عشان لو المستخدم غيّر paymentMethod بس من غير annualTarget —
+ * ما يحسبش من صفر ويخزّن 0.
+ *
  * @param notifyManagerId — لو موجود (حالة الـ agent)، بيُنشئ إشعار في Firestore
- *                          يُرسل للمدير بتفاصيل التغيير.
  */
 export async function updateClient(
   id: string,
   data: Partial<Omit<Client, 'id' | 'createdAt'>>,
   options?: {
-    notifyManagerId?: string;   // uid المدير المباشر
-    editorName?: string;         // اسم اللي عمل التعديل
-    clientName?: string;         // اسم العميل للإشعار
+    notifyManagerId?: string;
+    editorName?: string;
+    clientName?: string;
     companyId?: string;
   }
 ): Promise<void> {
+  // ✅ اجلب القيم الحالية من Firestore لو محتاجين نكمّل الحساب
+  let currentData: Record<string, any> = {};
+  if (
+    (data.annualTarget !== undefined || data.paymentMethod !== undefined ||
+     data.startMonth !== undefined) &&
+    (data.annualTarget === undefined || data.paymentMethod === undefined || data.startMonth === undefined)
+  ) {
+    const snap = await getDoc(doc(db, COL, id));
+    if (snap.exists()) currentData = snap.data();
+  }
+
   let paymentAmount = data.paymentAmount;
   let lastCollectionMonth = data.lastCollectionMonth;
 
   if (data.annualTarget !== undefined || data.paymentMethod !== undefined) {
-    paymentAmount = calculatePaymentAmount(data.annualTarget ?? 0, data.paymentMethod ?? 'شهري');
+    const annualTarget  = data.annualTarget  ?? currentData.annualTarget  ?? 0;
+    const paymentMethod = data.paymentMethod ?? currentData.paymentMethod ?? 'شهري';
+    paymentAmount = calculatePaymentAmount(annualTarget, paymentMethod);
   }
+
   if (data.startMonth !== undefined || data.paymentMethod !== undefined) {
-    lastCollectionMonth = calculateLastCollectionMonth(
-      data.startMonth ?? 'يناير',
-      data.paymentMethod ?? 'شهري'
-    );
+    const startMonth    = data.startMonth    ?? currentData.startMonth    ?? 'يناير';
+    const paymentMethod = data.paymentMethod ?? currentData.paymentMethod ?? 'شهري';
+    lastCollectionMonth = calculateLastCollectionMonth(startMonth, paymentMethod);
   }
 
   await updateDoc(doc(db, COL, id), {
     ...data,
-    paymentAmount,
-    lastCollectionMonth,
+    ...(paymentAmount      !== undefined ? { paymentAmount }      : {}),
+    ...(lastCollectionMonth !== undefined ? { lastCollectionMonth } : {}),
     updatedAt: serverTimestamp(),
   });
 
-  // ── إشعار المدير (خاص بالـ agent) ──────────────────────────
+  // ── إشعار تعديل العميل (خاص بالـ agent) ─────────────────────
   if (options?.notifyManagerId) {
     const changedFields = Object.keys(data).filter(
-      (k) => !['paymentAmount', 'lastCollectionMonth'].includes(k)
+      (k) => !['paymentAmount', 'lastCollectionMonth', 'companyId'].includes(k)
     );
-
-    await addDoc(collection(db, 'notifications'), {
-      type:        'client_edit',
-      recipientId: options.notifyManagerId,
-      companyId:   options.companyId ?? '',
-      clientId:    id,
-      clientName:  options.clientName ?? data.clientName ?? '',
-      editorName:  options.editorName ?? '',
-      changedFields,
-      changes:     Object.fromEntries(
-        changedFields.map((k) => [k, (data as any)[k]])
-      ),
-      read:        false,
-      createdAt:   serverTimestamp(),
-    });
+    if (changedFields.length > 0) {
+      await addDoc(collection(db, 'notifications'), {
+        type:        'client_edit',
+        recipientId: options.notifyManagerId,
+        companyId:   options.companyId ?? '',
+        clientId:    id,
+        clientName:  options.clientName ?? data.clientName ?? '',
+        editorName:  options.editorName ?? '',
+        changedFields,
+        changes:     Object.fromEntries(
+          changedFields.map((k) => [k, (data as any)[k]])
+        ),
+        read:      false,
+        createdAt: serverTimestamp(),
+      });
+    }
   }
 }
 

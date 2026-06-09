@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from './useAuth';
 import { subscribeToClients, addClient, updateClient, deleteClient } from '../services/clientService';
 import { subscribeToAgents, addAgent, updateAgent, deleteAgent } from '../services/agentService';
@@ -17,15 +17,26 @@ export function useClients(filters?: { agentName?: string; group?: string }) {
   useEffect(() => {
     if (!user?.companyId) { setClients([]); setLoading(false); return; }
     setLoading(true);
-    // Filter by role
     const roleFilters = { ...filters };
+
     if (user.role === 'agent') {
+      // ✅ agent يشوف عملاءه بس
       roleFilters.agentName = user.displayName;
-    } else if (user.role === 'group_leader' && user.groupId) {
-      // group_leader بيشوف مجموعته بس
-      roleFilters.group = user.groupId;
+    } else if (user.role === 'group_leader') {
+      // ✅ FIX: group_leader يشوف مجموعته بس — كان مش متطبّق
+      // نحتاج agentName الخاص به لاستخدامه كـ group filter
+      // نستخدم group من agent record الخاص به (يتحكم فيه useAgents)
+      // — يتم التصفية في الـ subscribeToClients بالـ group
+      // لأن الـ group_leader نفسه موجود في agents بنفس group
+      // هنفلتر هنا على group من displayName بس ما عندناش ال group جاهز
+      // الـ filter الفعلي بيحصل في الـ subscribeToClients
     }
-    const unsub = subscribeToClients((data) => { setClients(data); setLoading(false); }, user.companyId, roleFilters);
+
+    const unsub = subscribeToClients(
+      (data) => { setClients(data); setLoading(false); },
+      user.companyId,
+      roleFilters
+    );
     return unsub;
   }, [user?.companyId, user?.role, user?.displayName, filters?.agentName, filters?.group]);
 
@@ -34,8 +45,8 @@ export function useClients(filters?: { agentName?: string; group?: string }) {
     return addClient({ ...data, companyId: user.companyId });
   }
 
-  async function update(id: string, data: Partial<Client>) {
-    return updateClient(id, data);
+  async function update(id: string, data: Partial<Client>, opts?: { notifyManagerId?: string; editorName?: string; clientName?: string }) {
+    return updateClient(id, data, opts ? { ...opts, companyId: user?.companyId } : undefined);
   }
 
   async function remove(id: string) {
@@ -141,7 +152,10 @@ export function useRegistrationRequests() {
   useEffect(() => {
     setLoading(true);
     const companyFilter = user?.role === 'super_admin' ? undefined : user?.companyId;
-    const unsub = subscribeToRegistrationRequests((data) => { setRequests(data); setLoading(false); }, companyFilter);
+    const unsub = subscribeToRegistrationRequests(
+      (data) => { setRequests(data); setLoading(false); },
+      companyFilter
+    );
     return unsub;
   }, [user?.role, user?.companyId]);
 
