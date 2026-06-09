@@ -55,20 +55,23 @@ export function useClients(filters?: { agentName?: string; agentId?: string; gro
 
 export function useAgents(companyId?: string) {
   const { user } = useAuth();
-  const effectiveCompanyId = companyId ?? user?.companyId ?? '';
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const effectiveCompanyId = companyId ?? user?.companyId ?? '';
+    // لو user لسه null معناه البيانات بتتحمل — نفضل في loading
+    if (!user) { setLoading(true); return; }
+    // لو user موجود بس مفيش companyId
     if (!effectiveCompanyId) { setAgents([]); setLoading(false); return; }
     setLoading(true);
-    // جميع الأدوار تشوف وكلاء الشركة كلها — الفلترة بتتم في الـ UI حسب الحاجة
     const unsub = subscribeToAgents((data) => { setAgents(data); setLoading(false); }, effectiveCompanyId);
     return unsub;
-  }, [effectiveCompanyId]);
+  }, [companyId, user?.companyId, user?.uid]);
 
   async function create(data: Omit<Agent, 'id' | 'createdAt'>) {
-    return addAgent({ ...data, companyId: effectiveCompanyId });
+    const cid = companyId ?? user?.companyId ?? '';
+    return addAgent({ ...data, companyId: cid });
   }
 
   async function update(id: string, data: Partial<Agent>) {
