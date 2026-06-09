@@ -21,14 +21,10 @@ export function useClients(filters?: { agentName?: string; agentId?: string; gro
     const roleFilters: { agentId?: string; agentName?: string; group?: string; supervisorId?: string } = { ...filters };
 
     if (user.role === 'agent') {
-      // الوكيل يشوف عملاؤه بس
       roleFilters.agentId = user.uid;
     } else if (user.role === 'group_leader') {
-      // رئيس المجموعة يشوف عملاء مجموعته فقط (supervisorId = uid الخاص برئيس المجموعة)
       roleFilters.supervisorId = user.uid;
     }
-    // المراقب والمراقب العام: يشوفوا كل عملاء فريقهم في الشركة —
-    // الفلتر بـ companyId كافي لأن بياناتهم مقيدة بالشركة في Firestore.
 
     const unsub = subscribeToClients(
       (data) => { setClients(data); setLoading(false); },
@@ -66,6 +62,7 @@ export function useAgents(companyId?: string) {
   useEffect(() => {
     if (!effectiveCompanyId) { setAgents([]); setLoading(false); return; }
     setLoading(true);
+    // جميع الأدوار تشوف وكلاء الشركة كلها — الفلترة بتتم في الـ UI حسب الحاجة
     const unsub = subscribeToAgents((data) => { setAgents(data); setLoading(false); }, effectiveCompanyId);
     return unsub;
   }, [effectiveCompanyId]);
@@ -98,12 +95,9 @@ export function useUsers(companyId?: string) {
     const unsub = subscribeToUsers(
       (data) => {
         let filtered = data;
-        // المراقب يشوف رؤساء المجموعات التابعين له فقط
         if (user?.role === 'supervisor') {
           filtered = data.filter((u) => u.managerId === user.uid);
-        }
-        // المراقب العام يشوف المراقبين التابعين له فقط
-        else if (user?.role === 'general_supervisor') {
+        } else if (user?.role === 'general_supervisor') {
           filtered = data.filter((u) => u.managerId === user.uid);
         }
         setUsers(filtered);
@@ -157,6 +151,7 @@ export function useCompanies() {
 }
 
 // ─── useRegistrationRequests ──────────────────────────────────────────────────
+// FIX: تبسيط الكيري لتجنب مشاكل Composite Index في Firestore
 
 export function useRegistrationRequests() {
   const { user } = useAuth();
@@ -164,19 +159,27 @@ export function useRegistrationRequests() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!user) { setRequests([]); setLoading(false); return; }
     setLoading(true);
 
-    // super_admin: كل الشركات
-    // sales_manager: شركته كلها
-    // general_supervisor / supervisor: الطلبات الموجهة إليهم فقط (managerId == uid)
-    const companyFilter = user?.role === 'super_admin' ? undefined : user?.companyId;
+    // super_admin وsales_manager: كل الطلبات في الشركة/النظام
+    // general_supervisor وsupervisor: فقط الطلبات الموجهة إليهم (managerId == uid)
+    const companyFilter = user.role === 'super_admin' ? undefined : user.companyId;
     const managerFilter =
-      (user?.role === 'general_supervisor' || user?.role === 'supervisor')
-        ? user?.uid
+      (user.role === 'general_supervisor' || user.role === 'supervisor')
+        ? user.uid
         : undefined;
 
     const unsub = subscribeToRegistrationRequests(
-      (data) => { setRequests(data); setLoading(false); },
+      (data) => {
+        // فلترة إضافية على الكلاينت لضمان الدقة
+        let filtered = data;
+        if (managerFilter) {
+          filtered = data.filter((r) => r.managerId === managerFilter);
+        }
+        setRequests(filtered);
+        setLoading(false);
+      },
       companyFilter,
       managerFilter,
     );

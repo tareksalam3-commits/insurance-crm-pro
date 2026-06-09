@@ -18,7 +18,7 @@ export default function Requests() {
   const { requests, loading } = useRegistrationRequests();
   const [processingId, setProcessingId] = useState<string | null>(null);
 
-  // حالة تعيين رئيس المجموعة بعد الموافقة
+  // حالة تعيين رئيس المجموعة بعد الموافقة (للـ agent فقط)
   const [assignModal, setAssignModal] = useState<{
     uid: string;
     displayName: string;
@@ -41,9 +41,9 @@ export default function Requests() {
     setProcessingId(req.id);
     try {
       const result = await approveRegistrationRequest(req);
-      // إذا كان الدور agent، نعرض modal لتعيين رئيس المجموعة
+
+      // إذا كان الدور agent نعرض modal لتعيين رئيس المجموعة
       if (req.requestedRole === 'agent' && result?.newUid) {
-        // جيب رؤساء المجموعات في نفس الشركة
         setLeadersLoading(true);
         setAssignModal({ uid: result.newUid, displayName: req.displayName, companyId: req.companyId });
         setSelectedLeaderId('');
@@ -54,7 +54,7 @@ export default function Requests() {
       }
     } catch (e) {
       console.error(e);
-      alert('حدث خطأ أثناء الموافقة');
+      alert('حدث خطأ أثناء الموافقة. تأكد من الاتصال بالإنترنت وحاول مجدداً.');
     } finally {
       setProcessingId(null);
     }
@@ -66,7 +66,7 @@ export default function Requests() {
     try {
       await rejectRegistrationRequest(req.id);
     } catch {
-      alert('حدث خطأ');
+      alert('حدث خطأ أثناء الرفض. حاول مجدداً.');
     } finally {
       setProcessingId(null);
     }
@@ -87,6 +87,16 @@ export default function Requests() {
     }
   }
 
+  // توضيح نطاق الطلبات حسب الدور
+  const scopeNote =
+    user?.role === 'general_supervisor'
+      ? 'تعرض طلبات المراقبين الموجهة إليك فقط.'
+      : user?.role === 'supervisor'
+      ? 'تعرض طلبات الوكلاء ورؤساء المجموعات الموجهة إليك فقط.'
+      : user?.role === 'sales_manager'
+      ? 'تعرض جميع طلبات الانضمام في شركتك.'
+      : null;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
@@ -99,11 +109,10 @@ export default function Requests() {
         )}
       </div>
 
-      {/* توضيح الصلاحية */}
-      {(user?.role === 'general_supervisor' || user?.role === 'supervisor') && (
+      {/* توضيح النطاق */}
+      {scopeNote && (
         <div className="px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
-          تعرض هذه الصفحة الطلبات الموجهة إليك فقط.
-          {user.role === 'supervisor' && ' بعد الموافقة يمكنك تعيين رئيس المجموعة للوكيل.'}
+          {scopeNote}
         </div>
       )}
 
@@ -175,7 +184,10 @@ export default function Requests() {
               <h2 className="font-bold text-gray-900">تعيين رئيس المجموعة</h2>
             </div>
             <p className="text-sm text-gray-600">
-              تمت الموافقة على <span className="font-semibold">{assignModal.displayName}</span>. هل تريد تعيين رئيس مجموعة له الآن؟
+              تمت الموافقة على <span className="font-semibold">{assignModal.displayName}</span> وتم إرسال إيميل لتعيين كلمة المرور.
+            </p>
+            <p className="text-sm text-gray-500">
+              هل تريد تعيين رئيس مجموعة له الآن؟
             </p>
 
             {leadersLoading ? (
@@ -185,7 +197,7 @@ export default function Requests() {
               </div>
             ) : groupLeaders.length === 0 ? (
               <div className="px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
-                لا يوجد رؤساء مجموعات متاحون في هذه الشركة. يمكن تعيينه لاحقاً من صفحة المستخدمين.
+                لا يوجد رؤساء مجموعات متاحون. يمكن تعيينه لاحقاً من صفحة المستخدمين.
               </div>
             ) : (
               <select

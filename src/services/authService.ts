@@ -119,7 +119,7 @@ export async function submitRegistrationRequest(
     createdAt: serverTimestamp(),
   });
 
-  // إشعار للمدير المباشر فقط (مش كل المديرين)
+  // إشعار للمدير المباشر فقط
   if (data.managerId) {
     await addDoc(collection(db, 'notifications'), {
       type:          'registration_request',
@@ -132,7 +132,7 @@ export async function submitRegistrationRequest(
       createdAt:     serverTimestamp(),
     });
   } else {
-    // لو مفيش مدير مباشر (sales_manager) — إشعار لكل sales_manager في الشركة
+    // لو مفيش مدير مباشر — إشعار لكل sales_manager في الشركة
     const managersSnap = await getDocs(query(
       collection(db, 'users'),
       where('companyId', '==', data.companyId),
@@ -156,31 +156,41 @@ export async function submitRegistrationRequest(
   return ref.id;
 }
 
+// FIX: تبسيط الكيري — نفلتر بـ companyId فقط على Firestore
+// وبـ managerId على الكلاينت لتجنب الحاجة لـ composite index
 export function subscribeToRegistrationRequests(
   callback: (requests: RegistrationRequest[]) => void,
   companyId?: string,
-  managerId?: string
+  managerId?: string,
 ): () => void {
+  // كيري بسيط: status=pending + companyId فقط (index موجود بالفعل)
   const constraints: any[] = [
     where('status', '==', 'pending'),
     orderBy('createdAt', 'desc'),
   ];
   if (companyId) constraints.push(where('companyId', '==', companyId));
-  if (managerId) constraints.push(where('managerId', '==', managerId));
+
   const q = query(collection(db, 'registrationRequests'), ...constraints);
+
   return onSnapshot(q, (snap) => {
-    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() } as RegistrationRequest)));
+    let data = snap.docs.map((d) => ({ id: d.id, ...d.data() } as RegistrationRequest));
+    // فلترة managerId على الكلاينت (بدل Firestore) لتجنب composite index
+    if (managerId) {
+      data = data.filter((r) => r.managerId === managerId);
+    }
+    callback(data);
   });
 }
 
 /**
- * الموافقة على طلب تسجيل:
+ * الموافقة على طلب التسجيل:
  * 1. ينشئ حساب Firebase Auth بكلمة مرور مؤقتة عشوائية (لا تُحفظ)
  * 2. يضيف doc في users بـ status: 'active'
  * 3. يضيف record في agents
  * 4. يحدّث حالة الطلب إلى approved
  * 5. يبعت إيميل reset password — المستخدم يضغط اللينك ويحط كلمة سر جديدة
- *    ثم يسجل دخول عادي
+ *
+ * يمكن أن يوافق: super_admin، sales_manager، general_supervisor، supervisor
  */
 export async function approveRegistrationRequest(
   request: RegistrationRequest
