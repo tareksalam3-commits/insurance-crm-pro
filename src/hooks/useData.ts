@@ -21,8 +21,9 @@ export function useClients(filters?: { agentName?: string; group?: string }) {
     const roleFilters = { ...filters };
     if (user.role === 'agent') {
       roleFilters.agentName = user.displayName;
-    } else if (user.role === 'group_leader') {
-      // group_leader sees their group
+    } else if (user.role === 'group_leader' && user.groupId) {
+      // group_leader بيشوف مجموعته بس
+      roleFilters.group = user.groupId;
     }
     const unsub = subscribeToClients((data) => { setClients(data); setLoading(false); }, user.companyId, roleFilters);
     return unsub;

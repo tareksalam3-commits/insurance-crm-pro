@@ -17,6 +17,15 @@ import { auth, db, firebaseConfig } from '../firebase/config';
 import type { User, UserRole, RegistrationRequest } from '../types';
 import { MANAGER_ROLE_FOR } from '../hooks/usePermissions';
 
+// التارجت الافتراضي لكل وظيفة حسب اللائحة
+const DEFAULT_TARGETS: Partial<Record<UserRole, number>> = {
+  agent:              12150,
+  group_leader:       60000,
+  supervisor:         120000,
+  general_supervisor: 240000,
+  sales_manager:      750000,
+};
+
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
 export async function signIn(email: string, password: string): Promise<FirebaseUser> {
@@ -110,25 +119,15 @@ export async function submitRegistrationRequest(
   return ref.id;
 }
 
-/**
- * الاشتراك في طلبات التسجيل المعلقة.
- * - super_admin: يشوف كل الطلبات (بدون companyId filter)
- * - sales_manager: يشوف طلبات شركته فقط (companyId مطلوب)
- */
 export function subscribeToRegistrationRequests(
   callback: (requests: RegistrationRequest[]) => void,
-  companyId?: string   // undefined = super_admin يجيب الكل
+  companyId?: string
 ): () => void {
   const constraints: any[] = [
     where('status', '==', 'pending'),
     orderBy('createdAt', 'desc'),
   ];
-
-  // sales_manager يفلتر بشركته بس
-  if (companyId) {
-    constraints.push(where('companyId', '==', companyId));
-  }
-
+  if (companyId) constraints.push(where('companyId', '==', companyId));
   const q = query(collection(db, 'registrationRequests'), ...constraints);
   return onSnapshot(q, (snap) => {
     callback(snap.docs.map((d) => ({ id: d.id, ...d.data() } as RegistrationRequest)));
@@ -137,13 +136,15 @@ export function subscribeToRegistrationRequests(
 
 /**
  * الموافقة على طلب تسجيل:
- * - ينشئ حساب Firebase Auth
- * - يضيف doc في users
- * - يحدّث حالة الطلب إلى approved
+ * 1. ينشئ حساب Firebase Auth
+ * 2. يضيف doc في users
+ * 3. يضيف record في agents تلقائياً بالتارجت حسب اللائحة
+ * 4. يحدّث حالة الطلب إلى approved
  */
 export async function approveRegistrationRequest(
   request: RegistrationRequest
 ): Promise<void> {
+  // 1 + 2: إنشاء الحساب
   await createUserWithSecondaryApp(
     request.email,
     request.password ?? 'TempPass123!',
@@ -152,43 +153,48 @@ export async function approveRegistrationRequest(
     request.companyId,
     request.managerId || undefined,
   );
+
+  // 3: إضافة في agents تلقائياً
+  await addDoc(collection(db, 'agents'), {
+    companyId:      request.companyId,
+    name:           request.displayName,
+    group:          '',                                          // يعدّلها المدير بعدين
+    productionType: request.requestedRole,                       // نفس الوظيفة
+    target:         DEFAULT_TARGETS[request.requestedRole] ?? 0, // تارجت اللائحة
+    supervisorId:   request.managerId || '',
+    status:         'active',
+    createdAt:      serverTimestamp(),
+  });
+
+  // 4: تحديث حالة الطلب
   await updateDoc(doc(db, 'registrationRequests', request.id), {
-    status: 'approved',
+    status:     'approved',
     approvedAt: serverTimestamp(),
   });
 }
 
-/**
- * رفض طلب التسجيل — يحذف الطلب نهائياً
- */
 export async function rejectRegistrationRequest(requestId: string): Promise<void> {
   await deleteDoc(doc(db, 'registrationRequests', requestId));
 }
 
 // ─── Potential Managers ───────────────────────────────────────────────────────
 
-/**
- * يجيب المديرين المحتملين للوظيفة المطلوبة في نفس الشركة.
- * بيستخدم MANAGER_ROLE_FOR من usePermissions لضمان التوافق مع التسلسل الهرمي.
- */
 export async function getPotentialManagers(
   companyId: string,
   requestedRole: UserRole
 ): Promise<User[]> {
   const managerRole: UserRole | undefined = MANAGER_ROLE_FOR[requestedRole];
-
-  // sales_manager ليس له مدير داخل النظام (يتبع super_admin مباشرة)
   if (!managerRole) return [];
 
-  // جيب users وفلتر يدوياً (لتجنب Composite Index)
-  const snap = await getDocs(query(collection(db, 'users')));
+  // شرطين بس لتجنب Composite Index
+  const q = query(
+    collection(db, 'users'),
+    where('companyId', '==', companyId),
+    where('role', '==', managerRole),
+  );
+  const snap = await getDocs(q);
 
   return snap.docs
     .map((d) => ({ uid: d.id, ...d.data() } as User))
-    .filter(
-      (u) =>
-        u.companyId === companyId &&
-        u.role === managerRole &&
-        u.status === 'active'
-    );
+    .filter((u) => u.status === 'active');
 }

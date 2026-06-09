@@ -1,7 +1,7 @@
 import {
   collection, doc, getDocs, addDoc, updateDoc, deleteDoc,
   query, orderBy, where, onSnapshot, serverTimestamp,
-  type QueryConstraint, addDoc as addNotification,
+  type QueryConstraint,
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import type { Client, ProductionType } from '../types';

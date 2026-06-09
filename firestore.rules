@@ -52,12 +52,12 @@ service cloud.firestore {
         isSuperAdmin() ||
         (isManager() && sameCompany(resource.data.companyId))
       );
-      allow write: if isAuth() && (
+      allow update, delete: if isAuth() && (
         request.auth.uid == uid ||
         isSuperAdmin() ||
         (isSalesManager() && sameCompany(resource.data.companyId))
       );
-      // Allow creating new user docs from secondary app approval
+      // السماح بإنشاء مستخدمين جدد من خلال التطبيق الثانوي عند الموافقة على الطلب
       allow create: if isAuth() && (isSuperAdmin() || isSalesManager());
     }
 
@@ -81,7 +81,12 @@ service cloud.firestore {
       allow read: if isAuth() && (
         isSuperAdmin() || sameCompany(resource.data.companyId)
       );
-      allow write: if isAuth() && (
+      // create: استخدام request.resource.data (البيانات الجديدة) وليس resource.data
+      allow create: if isAuth() && (
+        isSuperAdmin() ||
+        (isManager() && sameCompany(request.resource.data.companyId))
+      );
+      allow update, delete: if isAuth() && (
         isSuperAdmin() ||
         (isManager() && sameCompany(resource.data.companyId))
       );
@@ -93,7 +98,12 @@ service cloud.firestore {
       allow read: if isAuth() && (
         isSuperAdmin() || sameCompany(resource.data.companyId)
       );
-      allow write: if isAuth() && (
+      // create: استخدام request.resource.data (البيانات الجديدة) وليس resource.data
+      allow create: if isAuth() && (
+        isSuperAdmin() ||
+        sameCompany(request.resource.data.companyId)
+      );
+      allow update, delete: if isAuth() && (
         isSuperAdmin() ||
         sameCompany(resource.data.companyId)
       );
@@ -107,7 +117,21 @@ service cloud.firestore {
       );
       allow create: if isAuth() && sameCompany(request.resource.data.companyId);
       allow delete: if isAuth() && (
-        isSuperAdmin() || isManager()
+        isSuperAdmin() || isManager() || sameCompany(resource.data.companyId)
+      );
+    }
+
+    // ── notifications ─────────────────────────────────────────────────────────
+
+    match /notifications/{notifId} {
+      allow read: if isAuth() && (
+        request.auth.uid == resource.data.recipientId ||
+        isSuperAdmin()
+      );
+      allow create: if isAuth();
+      allow update: if isAuth() && request.auth.uid == resource.data.recipientId;
+      allow delete: if isAuth() && (
+        request.auth.uid == resource.data.recipientId || isSuperAdmin()
       );
     }
   }

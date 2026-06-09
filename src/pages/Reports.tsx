@@ -206,7 +206,7 @@ export default function Reports() {
                 {leadershipProduction.map((l) => (
                   <tr key={l.name} className="hover:bg-gray-50">
                     <td className="px-3 py-3 font-medium text-gray-900 text-xs">{l.name}</td>
-                    <td className="px-3 py-3 text-xs text-gray-500">{l.role}</td>
+                    <td className="px-3 py-3 text-xs text-gray-500">{l.role === "agent" ? "وكيل" : l.role === "group_leader" ? "رئيس مجموعة" : l.role === "supervisor" ? "مراقب" : l.role === "general_supervisor" ? "مراقب عام" : "مدير مبيعات"}</td>
                     <td className="px-3 py-3 font-bold text-xs text-gray-900">{formatCurrency(l.total)}</td>
                     <td className="px-3 py-3 text-xs text-gray-500">{l.clientsCount}</td>
                   </tr>

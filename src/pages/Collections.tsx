@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Bell, CheckCircle2, Clock, MessageCircle, Search, Wallet } from 'lucide-react';
+import { Bell, CheckCircle2, MessageCircle, Search, Wallet } from 'lucide-react';
 import { useClients } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
 import { formatCurrency } from '../utils/formatUtils';
@@ -7,6 +7,7 @@ import { MONTH_LIST, YEAR_LIST } from '../types';
 import type { Client, PaymentRecord } from '../types';
 import { subscribeToPaymentRecords, addPaymentRecord, deletePaymentRecord } from '../services/paymentRecordsService';
 import { isCollectionMonth, isNewProductionMonth, calculatePaymentAmount } from '../services/paymentService';
+import { updateClient } from '../services/clientService';
 
 const NOW = new Date();
 
@@ -17,7 +18,8 @@ export default function Collections() {
   const [selectedYear, setSelectedYear] = useState(NOW.getFullYear());
   const [search, setSearch] = useState('');
   const [records, setRecords] = useState<PaymentRecord[]>([]);
-  const [loading, setLoading] = useState(false);
+  // تتبع الأزرار اللي بتُنفَّذ حالياً لمنع الضغط المزدوج
+  const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!user?.companyId) return;
@@ -47,25 +49,55 @@ export default function Collections() {
     .filter((c) => records.some((r) => r.clientId === c.id))
     .reduce((sum, c) => sum + calculatePaymentAmount(c.annualTarget, c.paymentMethod), 0);
 
+  // ── تحصيل: إضافة record + تحديث lastCollectionMonth للعميل ─────────────────
   async function handleCollect(client: Client) {
     if (!user?.companyId) return;
-    const amount = calculatePaymentAmount(client.annualTarget, client.paymentMethod);
-    await addPaymentRecord({
-      companyId: user.companyId,
-      clientId: client.id,
-      clientName: client.clientName,
-      agentName: client.agentName,
-      group: client.group,
-      amount,
-      month: selectedMonth,
-      year: selectedYear,
-      collectedBy: user.displayName,
-    });
+    if (loadingIds.has(client.id)) return; // منع الضغط المزدوج
+
+    setLoadingIds((prev) => new Set(prev).add(client.id));
+    try {
+      const amount = calculatePaymentAmount(client.annualTarget, client.paymentMethod);
+
+      // إضافة سجل الدفع
+      await addPaymentRecord({
+        companyId: user.companyId,
+        clientId: client.id,
+        clientName: client.clientName,
+        agentName: client.agentName,
+        group: client.group,
+        amount,
+        month: selectedMonth,
+        year: selectedYear,
+        collectedBy: user.displayName,
+      });
+
+      // تحديث آخر شهر تحصيل للعميل
+      await updateClient(client.id, {
+        lastCollectionMonth: `${selectedMonth} ${selectedYear}`,
+      });
+    } finally {
+      setLoadingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(client.id);
+        return next;
+      });
+    }
   }
 
+  // ── إلغاء التحصيل: حذف record فقط (lastCollectionMonth يفضل كما هو) ────────
   async function handleUndo(clientId: string) {
-    const record = records.find((r) => r.clientId === clientId);
-    if (record) await deletePaymentRecord(record.id);
+    if (loadingIds.has(clientId)) return;
+    setLoadingIds((prev) => new Set(prev).add(clientId));
+    try {
+      const record = records.find((r) => r.clientId === clientId);
+      if (record) await deletePaymentRecord(record.id);
+    } finally {
+      setLoadingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(clientId);
+        return next;
+      });
+    }
   }
 
   function handleWhatsApp(client: Client) {
@@ -138,6 +170,7 @@ export default function Collections() {
             const isCollected = !!record;
             const isNew = isNewProductionMonth(client, selectedMonth, selectedYear);
             const amount = calculatePaymentAmount(client.annualTarget, client.paymentMethod);
+            const isLoading = loadingIds.has(client.id);
 
             return (
               <div key={client.id} className={`rounded-2xl p-4 border transition-all ${
@@ -160,7 +193,7 @@ export default function Collections() {
 
                   <div className="text-left flex-shrink-0 mr-2">
                     <p className="font-bold text-gray-900 text-sm">{formatCurrency(amount)}</p>
-                    {isCollected && <p className="text-xs text-emerald-600 font-medium">✓ تم</p>}
+                    {isCollected && <p className="text-xs text-emerald-600 font-medium">✓ تم بواسطة: {record?.collectedBy}</p>}
                   </div>
 
                   <div className="flex gap-1.5 flex-shrink-0">
@@ -171,14 +204,23 @@ export default function Collections() {
                       </button>
                     )}
                     {isCollected ? (
-                      <button onClick={() => handleUndo(client.id)}
-                        className="px-3 py-1.5 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors text-xs font-medium">
-                        إلغاء
+                      <button
+                        onClick={() => handleUndo(client.id)}
+                        disabled={isLoading}
+                        className="px-3 py-1.5 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors text-xs font-medium disabled:opacity-50">
+                        {isLoading ? '...' : 'إلغاء'}
                       </button>
                     ) : (
-                      <button onClick={() => handleCollect(client)}
-                        className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 transition-colors text-xs font-medium flex items-center gap-1">
-                        <CheckCircle2 size={13} /> تحصيل
+                      <button
+                        onClick={() => handleCollect(client)}
+                        disabled={isLoading}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 transition-colors text-xs font-medium flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed">
+                        {isLoading ? (
+                          <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <CheckCircle2 size={13} />
+                        )}
+                        {isLoading ? '' : 'تم التحصيل'}
                       </button>
                     )}
                   </div>

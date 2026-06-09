@@ -1,29 +1,30 @@
 import { useState, useMemo } from 'react';
-import { Plus, Search, X, Pencil, Trash2, Phone, FileText, Download, Filter } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, Phone, FileText, Download } from 'lucide-react';
 import { useClients, useAgents } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
 import { Modal } from '../components/ui/Modal';
 import { Button } from '../components/ui/Button';
-import { Card } from '../components/ui/Card';
 import { MONTH_LIST, YEAR_LIST, PAYMENT_METHODS } from '../types';
 import { formatCurrency } from '../utils/formatUtils';
 import { exportToExcel, clientsToExportData } from '../utils/exportUtils';
 import type { Client, ProductionType, PaymentMethod } from '../types';
-
-const EMPTY_FORM = {
-  agentName: '', group: '', productionType: 'agent' as ProductionType,
-  clientName: '', startMonth: 'يناير', startYear: new Date().getFullYear(),
-  annualTarget: 0, paymentMethod: 'شهري' as PaymentMethod, paymentAmount: 0,
-  lastCollectionMonth: '', phone: '', policyNumber: '',
-  insuranceCompany: '', insuranceType: '', notes: '',
-  status: 'نشط' as Client['status'],
-};
 
 const STATUS_COLORS: Record<Client['status'], string> = {
   'نشط':   'bg-emerald-100 text-emerald-700',
   'متأخر': 'bg-amber-100 text-amber-700',
   'ملغي':  'bg-red-100 text-red-700',
 };
+
+function emptyForm(agentName = '', group = '', productionType: ProductionType = 'agent') {
+  return {
+    agentName, group, productionType,
+    clientName: '', startMonth: 'يناير', startYear: new Date().getFullYear(),
+    annualTarget: 0, paymentMethod: 'شهري' as PaymentMethod, paymentAmount: 0,
+    lastCollectionMonth: '', phone: '', policyNumber: '',
+    insuranceCompany: '', insuranceType: '', notes: '',
+    status: 'نشط' as Client['status'],
+  };
+}
 
 export default function Clients() {
   const { user } = useAuth();
@@ -35,18 +36,26 @@ export default function Clients() {
   const [filterStatus, setFilterStatus] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
-  const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [form, setForm] = useState(emptyForm());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const groups = [...new Set(agents.map((a) => a.group))].filter(Boolean);
-  const agentNames = agents.map((a) => ({ name: a.name, group: a.group, productionType: a.productionType }));
+
+  // الوكلاء المتاحين للاختيار — حسب الدور
+  const availableAgents = useMemo(() => {
+    if (user?.role === 'agent') return [];  // الوكيل مش محتاج يختار
+    return agents.filter((a) => a.status === 'active');
+  }, [agents, user?.role]);
 
   const filtered = useMemo(() => {
     return clients.filter((c) => {
       const q = search.toLowerCase();
-      const matchSearch = !q || c.clientName.toLowerCase().includes(q) || c.agentName.toLowerCase().includes(q) || (c.policyNumber ?? '').includes(q);
+      const matchSearch = !q ||
+        c.clientName.toLowerCase().includes(q) ||
+        c.agentName.toLowerCase().includes(q) ||
+        (c.policyNumber ?? '').includes(q);
       const matchGroup = !filterGroup || c.group === filterGroup;
       const matchStatus = !filterStatus || c.status === filterStatus;
       return matchSearch && matchGroup && matchStatus;
@@ -55,7 +64,13 @@ export default function Clients() {
 
   function openAdd() {
     setEditId(null);
-    setForm({ ...EMPTY_FORM });
+    // لو الدور وكيل — حط اسمه تلقائياً
+    if (user?.role === 'agent') {
+      const myAgent = agents.find((a) => a.name === user.displayName);
+      setForm(emptyForm(user.displayName, myAgent?.group ?? '', myAgent?.productionType ?? 'agent'));
+    } else {
+      setForm(emptyForm());
+    }
     setError('');
     setShowModal(true);
   }
@@ -76,13 +91,18 @@ export default function Clients() {
 
   function handleAgentChange(name: string) {
     const agent = agents.find((a) => a.name === name);
-    setForm((f) => ({ ...f, agentName: name, group: agent?.group ?? f.group, productionType: agent?.productionType ?? f.productionType }));
+    setForm((f) => ({
+      ...f,
+      agentName: name,
+      group: agent?.group ?? f.group,
+      productionType: agent?.productionType ?? f.productionType,
+    }));
   }
 
   async function handleSubmit() {
-    if (!form.clientName.trim() || !form.agentName.trim()) { setError('اسم العميل والوكيل مطلوبان'); return; }
-    setSubmitting(true);
-    setError('');
+    if (!form.clientName.trim()) { setError('اسم العميل مطلوب'); return; }
+    if (!form.agentName.trim()) { setError('اسم الوكيل مطلوب'); return; }
+    setSubmitting(true); setError('');
     try {
       const companyId = user?.companyId ?? '';
       if (editId) {
@@ -104,45 +124,18 @@ export default function Clients() {
     setDeleteId(null);
   }
 
-  const canEdit = user?.role !== 'agent' || true; // agents can edit their own
   const canDelete = ['sales_manager', 'super_admin', 'general_supervisor', 'supervisor'].includes(user?.role ?? '');
-
-  const F = (field: string, label: string, type: 'text' | 'number' | 'select' | 'textarea' = 'text', options?: { value: string; label: string }[]) => (
-    <div key={field}>
-      <label className="block text-sm font-medium text-gray-700 mb-1.5">{label}</label>
-      {type === 'select' ? (
-        <select
-          value={(form as any)[field]}
-          onChange={(e) => setForm((f) => ({ ...f, [field]: e.target.value }))}
-          className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          {options?.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-      ) : type === 'textarea' ? (
-        <textarea
-          value={(form as any)[field]}
-          onChange={(e) => setForm((f) => ({ ...f, [field]: e.target.value }))}
-          rows={2}
-          className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-        />
-      ) : (
-        <input
-          type={type}
-          value={(form as any)[field]}
-          onChange={(e) => setForm((f) => ({ ...f, [field]: type === 'number' ? Number(e.target.value) : e.target.value }))}
-          className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-      )}
-    </div>
-  );
+  const isAgent = user?.role === 'agent';
 
   return (
     <div className="space-y-4">
+
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-lg font-bold text-gray-900">العملاء ({filtered.length})</h1>
         <div className="flex gap-2">
-          <Button size="sm" icon={<Download size={14} />} variant="secondary" onClick={() => exportToExcel(clientsToExportData(filtered), 'عملاء', 'clients')}>
+          <Button size="sm" icon={<Download size={14} />} variant="secondary"
+            onClick={() => exportToExcel(clientsToExportData(filtered), 'عملاء', 'clients')}>
             تصدير
           </Button>
           <Button size="sm" icon={<Plus size={14} />} onClick={openAdd}>إضافة</Button>
@@ -153,23 +146,19 @@ export default function Clients() {
       <div className="flex gap-2 flex-wrap">
         <div className="relative flex-1 min-w-0">
           <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            value={search} onChange={(e) => setSearch(e.target.value)}
+          <input value={search} onChange={(e) => setSearch(e.target.value)}
             placeholder="بحث بالاسم أو رقم الوثيقة..."
-            className="w-full pr-9 pl-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+            className="w-full pr-9 pl-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
         </div>
-        <select
-          value={filterGroup} onChange={(e) => setFilterGroup(e.target.value)}
-          className="px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-        >
-          <option value="">كل المجموعات</option>
-          {groups.map((g) => <option key={g} value={g}>{g}</option>)}
-        </select>
-        <select
-          value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
-          className="px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-        >
+        {!isAgent && (
+          <select value={filterGroup} onChange={(e) => setFilterGroup(e.target.value)}
+            className="px-3 py-2.5 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">كل المجموعات</option>
+            {groups.map((g) => <option key={g} value={g}>{g}</option>)}
+          </select>
+        )}
+        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
+          className="px-3 py-2.5 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
           <option value="">كل الحالات</option>
           <option value="نشط">نشط</option>
           <option value="متأخر">متأخر</option>
@@ -177,17 +166,16 @@ export default function Clients() {
         </select>
       </div>
 
-      {/* Summary Cards */}
+      {/* Summary */}
       <div className="grid grid-cols-3 gap-3">
-        {(['نشط', 'متأخر', 'ملغي'] as const).map((s) => {
-          const count = clients.filter((c) => c.status === s).length;
-          return (
-            <div key={s} className={`rounded-2xl p-3 text-center ${STATUS_COLORS[s].replace('text-', 'border-').replace('bg-', 'border-')} border bg-white`}>
-              <p className={`text-lg font-bold ${STATUS_COLORS[s].split(' ')[1]}`}>{count}</p>
-              <p className="text-xs text-gray-500">{s}</p>
-            </div>
-          );
-        })}
+        {(['نشط', 'متأخر', 'ملغي'] as const).map((s) => (
+          <div key={s} className="bg-white rounded-2xl p-3 text-center border border-gray-100 shadow-sm">
+            <p className={`text-lg font-bold ${STATUS_COLORS[s].split(' ')[1]}`}>
+              {clients.filter((c) => c.status === s).length}
+            </p>
+            <p className="text-xs text-gray-500">{s}</p>
+          </div>
+        ))}
       </div>
 
       {/* List */}
@@ -240,15 +228,14 @@ export default function Clients() {
       )}
 
       {/* Add/Edit Modal */}
-      <Modal
-        open={showModal}
-        onClose={() => setShowModal(false)}
-        title={editId ? 'تعديل عميل' : 'إضافة عميل جديد'}
-        size="lg"
+      <Modal open={showModal} onClose={() => setShowModal(false)}
+        title={editId ? 'تعديل عميل' : 'إضافة عميل جديد'} size="lg"
         footer={
           <>
             <Button variant="secondary" onClick={() => setShowModal(false)}>إلغاء</Button>
-            <Button loading={submitting} onClick={handleSubmit}>{editId ? 'حفظ التعديلات' : 'إضافة العميل'}</Button>
+            <Button loading={submitting} onClick={handleSubmit}>
+              {editId ? 'حفظ التعديلات' : 'إضافة العميل'}
+            </Button>
           </>
         }
       >
@@ -256,21 +243,32 @@ export default function Clients() {
           {error && <div className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm">{error}</div>}
 
           <div className="grid grid-cols-2 gap-4">
+
+            {/* اسم العميل */}
             <div className="col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1.5">اسم العميل *</label>
               <input value={form.clientName} onChange={(e) => setForm((f) => ({ ...f, clientName: e.target.value }))}
                 className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
 
+            {/* الوكيل — تلقائي للوكيل، dropdown للباقي */}
             <div className="col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1.5">الوكيل *</label>
-              <select value={form.agentName} onChange={(e) => handleAgentChange(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="">— اختر الوكيل —</option>
-                {agentNames.map((a) => <option key={a.name} value={a.name}>{a.name} ({a.group})</option>)}
-              </select>
+              {isAgent ? (
+                <input value={form.agentName} disabled
+                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm bg-gray-50 text-gray-500" />
+              ) : (
+                <select value={form.agentName} onChange={(e) => handleAgentChange(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="">— اختر الوكيل —</option>
+                  {availableAgents.map((a) => (
+                    <option key={a.name} value={a.name}>{a.name} ({a.group})</option>
+                  ))}
+                </select>
+              )}
             </div>
 
+            {/* شهر البداية */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">شهر البداية</label>
               <select value={form.startMonth} onChange={(e) => setForm((f) => ({ ...f, startMonth: e.target.value }))}
@@ -279,6 +277,7 @@ export default function Clients() {
               </select>
             </div>
 
+            {/* سنة البداية */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">سنة البداية</label>
               <select value={form.startYear} onChange={(e) => setForm((f) => ({ ...f, startYear: Number(e.target.value) }))}
@@ -287,12 +286,15 @@ export default function Clients() {
               </select>
             </div>
 
+            {/* التارجت */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">التارجت السنوي (ج.م)</label>
-              <input type="number" value={form.annualTarget} onChange={(e) => setForm((f) => ({ ...f, annualTarget: Number(e.target.value) }))}
+              <input type="number" value={form.annualTarget}
+                onChange={(e) => setForm((f) => ({ ...f, annualTarget: Number(e.target.value) }))}
                 className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
 
+            {/* طريقة السداد */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">طريقة السداد</label>
               <select value={form.paymentMethod} onChange={(e) => setForm((f) => ({ ...f, paymentMethod: e.target.value as PaymentMethod }))}
@@ -301,31 +303,36 @@ export default function Clients() {
               </select>
             </div>
 
+            {/* نوع الوثيقة */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">نوع الوثيقة (نص حر)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">نوع الوثيقة</label>
               <input value={form.insuranceType} onChange={(e) => setForm((f) => ({ ...f, insuranceType: e.target.value }))}
                 placeholder="مثال: الرباعية، حماية واستثمار..."
                 className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
 
+            {/* رقم الوثيقة */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">رقم الوثيقة</label>
               <input value={form.policyNumber} onChange={(e) => setForm((f) => ({ ...f, policyNumber: e.target.value }))}
                 className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
 
+            {/* شركة التأمين */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">شركة التأمين</label>
               <input value={form.insuranceCompany} onChange={(e) => setForm((f) => ({ ...f, insuranceCompany: e.target.value }))}
                 className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
 
+            {/* رقم الهاتف */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">رقم الهاتف</label>
               <input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
                 className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
 
+            {/* الحالة */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">الحالة</label>
               <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as Client['status'] }))}
@@ -336,6 +343,7 @@ export default function Clients() {
               </select>
             </div>
 
+            {/* ملاحظات */}
             <div className="col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1.5">ملاحظات</label>
               <textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
@@ -345,7 +353,7 @@ export default function Clients() {
         </div>
       </Modal>
 
-      {/* Delete confirm */}
+      {/* Delete Modal */}
       <Modal open={!!deleteId} onClose={() => setDeleteId(null)} title="حذف عميل"
         footer={
           <>
