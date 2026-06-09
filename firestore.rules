@@ -40,7 +40,8 @@ service cloud.firestore {
     // ── companies ─────────────────────────────────────────────────────────────
 
     match /companies/{companyId} {
-      allow read: if isAuth();
+      // القراءة مسموحة للجميع — لازم لصفحة طلب الانضمام (المستخدم مش مسجّل)
+      allow read: if true;
       allow write: if isSuperAdmin();
     }
 
@@ -51,7 +52,10 @@ service cloud.firestore {
         request.auth.uid == uid ||
         isSuperAdmin() ||
         (isManager() && sameCompany(resource.data.companyId))
-      );
+      ) ||
+      // قراءة عامة للمديرين فقط — لازم لصفحة طلب الانضمام (غير مسجّل)
+      // فقط إذا كان الـ role من أدوار الإدارة
+      (resource.data.role in ['sales_manager', 'general_supervisor', 'supervisor', 'group_leader']);
       allow write: if isAuth() && (
         request.auth.uid == uid ||
         isSuperAdmin() ||

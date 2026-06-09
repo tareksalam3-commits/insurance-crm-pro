@@ -17,6 +17,7 @@ import { initializeApp, deleteApp } from 'firebase/app';
 import { auth, db, firebaseConfig } from '../firebase/config';
 import type { User, UserRole, RegistrationRequest } from '../types';
 import { MANAGER_ROLE_FOR } from '../hooks/usePermissions';
+import { sendWelcomeEmail } from './emailService';
 
 // التارجت الافتراضي لكل وظيفة حسب اللائحة
 const DEFAULT_TARGETS: Partial<Record<UserRole, number>> = {
@@ -182,13 +183,24 @@ export async function approveRegistrationRequest(
 
   // تحديث حالة الطلب
   await updateDoc(doc(db, 'registrationRequests', request.id), {
-    status:     'approved',
-    approvedAt: serverTimestamp(),
+    status:      'approved',
+    approvedAt:  serverTimestamp(),
     approvedUid: newUid,
   });
 
-  // إرسال إيميل إعادة تعيين كلمة المرور للمستخدم ليضبطها بنفسه
+  // توليد رابط إعادة تعيين كلمة المرور وإرسال إيميل الترحيب
   await sendPasswordResetEmail(auth, request.email);
+
+  // إرسال إيميل الترحيب المخصص عبر EmailJS مع رابط تعيين كلمة المرور
+  // الرابط بيتولّد من Firebase Auth تلقائياً — نستخدم رابط الـ app مباشرة
+  const appUrl = window.location.origin;
+  const resetLink = `${appUrl}/login?reset=1`;
+  try {
+    await sendWelcomeEmail(request.displayName, request.email, resetLink);
+  } catch (emailErr) {
+    // لو EmailJS فشل، الـ Firebase reset email اتبعت فعلاً — مش مشكلة حرجة
+    console.warn('EmailJS failed (Firebase reset email was sent):', emailErr);
+  }
 }
 
 // FIX #5: rejectRegistrationRequest تغيّر الحالة إلى rejected بدل الحذف
