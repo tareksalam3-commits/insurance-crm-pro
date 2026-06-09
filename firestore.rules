@@ -57,7 +57,13 @@ service cloud.firestore {
         isSuperAdmin() ||
         (isSalesManager() && sameCompany(resource.data.companyId))
       );
-      allow create: if isAuth() && (isSuperAdmin() || isSalesManager());
+      // السماح للمستخدم الجديد بإنشاء doc خاص بـ uid نفسه (secondary app approval flow)
+      // أو للـ super_admin وسيلز مانجر
+      allow create: if isAuth() && (
+        request.auth.uid == uid ||
+        isSuperAdmin() ||
+        isSalesManager()
+      );
     }
 
     // ── registrationRequests ─────────────────────────────────────────────────
@@ -91,7 +97,11 @@ service cloud.firestore {
       allow read: if isAuth() && (
         isSuperAdmin() || sameCompany(resource.data.companyId)
       );
-      allow write: if isAuth() && (
+      allow create: if isAuth() && (
+        isSuperAdmin() ||
+        isManager()
+      );
+      allow update, delete: if isAuth() && (
         isSuperAdmin() ||
         (isManager() && sameCompany(resource.data.companyId))
       );
