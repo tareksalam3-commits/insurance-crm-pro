@@ -75,7 +75,13 @@ service cloud.firestore {
     match /registrationRequests/{reqId} {
       allow read: if isAuth() && (
         isSuperAdmin() ||
-        (isSalesManager() && sameCompany(resource.data.companyId))
+        (isSalesManager() && sameCompany(resource.data.companyId)) ||
+        // المراقب العام والمراقب يقروا الطلبات الموجهة إليهم فقط
+        (
+          (userRole() == 'general_supervisor' || userRole() == 'supervisor') &&
+          sameCompany(resource.data.companyId) &&
+          resource.data.managerId == request.auth.uid
+        )
       );
 
       // FIX #6: create مقيّد — يجب أن تكون البيانات صحيحة ولا تحوي password
@@ -91,7 +97,14 @@ service cloud.firestore {
 
       allow update, delete: if isAuth() && (
         isSuperAdmin() ||
-        (isSalesManager() && sameCompany(resource.data.companyId))
+        (isSalesManager() && sameCompany(resource.data.companyId)) ||
+        // المراقب العام والمراقب يقدروا يوافقوا على الطلبات الموجهة إليهم فقط
+        (
+          isAuth() &&
+          (userRole() == 'general_supervisor' || userRole() == 'supervisor') &&
+          sameCompany(resource.data.companyId) &&
+          resource.data.managerId == request.auth.uid
+        )
       );
     }
 

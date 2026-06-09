@@ -155,11 +155,11 @@ function AppRoutes() {
           }
         />
 
-        {/* طلبات التسجيل — super_admin و sales_manager فقط */}
+        {/* طلبات التسجيل — super_admin, sales_manager, general_supervisor, supervisor */}
         <Route
           path="requests"
           element={
-            <ProtectedRoute allowedRoles={['super_admin', 'sales_manager']}>
+            <ProtectedRoute allowedRoles={['super_admin', 'sales_manager', 'general_supervisor', 'supervisor']}>
               <Requests />
             </ProtectedRoute>
           }

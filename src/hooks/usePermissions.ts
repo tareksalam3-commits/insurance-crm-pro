@@ -138,8 +138,8 @@ export function getPermissions(role: UserRole): Permissions {
         canViewReports:             true,
         canEditReports:             false,
         reportScope:                'team',        // فريقه بس
-        canViewRequests:            false,
-        canApproveRequests:         false,
+        canViewRequests:            true,          // يشوف الطلبات الموجهة إليه
+        canApproveRequests:         true,          // يقدر يوافق/يرفض طلبات فريقه
         requestScope:               'company',
         showFullDashboard:          true,
         showMyDashboard:            true,
@@ -163,8 +163,8 @@ export function getPermissions(role: UserRole): Permissions {
         canViewReports:             true,
         canEditReports:             false,
         reportScope:                'team',
-        canViewRequests:            false,
-        canApproveRequests:         false,
+        canViewRequests:            true,          // يشوف الطلبات الموجهة إليه
+        canApproveRequests:         true,          // يقدر يوافق/يرفض طلبات فريقه
         requestScope:               'company',
         showFullDashboard:          true,
         showMyDashboard:            true,

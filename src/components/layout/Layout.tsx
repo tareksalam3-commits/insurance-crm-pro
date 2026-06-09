@@ -48,12 +48,18 @@ export function Layout() {
   useEffect(() => {
     if (!permissions.canApproveRequests || !user?.companyId) return;
     const companyFilter = user.role === 'super_admin' ? undefined : user.companyId;
+    // المراقب والمراقب العام يشوفوا الطلبات الموجهة إليهم فقط
+    const managerFilter =
+      (user.role === 'general_supervisor' || user.role === 'supervisor')
+        ? user.uid
+        : undefined;
     const unsub = subscribeToRegistrationRequests(
       (data) => setRequestsCount(data.length),
-      companyFilter
+      companyFilter,
+      managerFilter,
     );
     return unsub;
-  }, [permissions.canApproveRequests, user?.role, user?.companyId]);
+  }, [permissions.canApproveRequests, user?.role, user?.companyId, user?.uid]);
 
   const role = user?.role ?? 'agent';
   const totalBadge = dueCount + requestsCount;

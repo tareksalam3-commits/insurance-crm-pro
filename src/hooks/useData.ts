@@ -21,12 +21,14 @@ export function useClients(filters?: { agentName?: string; agentId?: string; gro
     const roleFilters: { agentId?: string; agentName?: string; group?: string; supervisorId?: string } = { ...filters };
 
     if (user.role === 'agent') {
-      // الوكيل يشوف عملاؤه بس عن طريق uid
+      // الوكيل يشوف عملاؤه بس
       roleFilters.agentId = user.uid;
     } else if (user.role === 'group_leader') {
-      // رئيس المجموعة يشوف عملاء مجموعته فقط (عن طريق supervisorId = uid)
+      // رئيس المجموعة يشوف عملاء مجموعته فقط (supervisorId = uid الخاص برئيس المجموعة)
       roleFilters.supervisorId = user.uid;
     }
+    // المراقب والمراقب العام: يشوفوا كل عملاء فريقهم في الشركة —
+    // الفلتر بـ companyId كافي لأن بياناتهم مقيدة بالشركة في Firestore.
 
     const unsub = subscribeToClients(
       (data) => { setClients(data); setLoading(false); },
@@ -93,9 +95,24 @@ export function useUsers(companyId?: string) {
 
   useEffect(() => {
     setLoading(true);
-    const unsub = subscribeToUsers((data) => { setUsers(data); setLoading(false); }, effectiveCompanyId);
+    const unsub = subscribeToUsers(
+      (data) => {
+        let filtered = data;
+        // المراقب يشوف رؤساء المجموعات التابعين له فقط
+        if (user?.role === 'supervisor') {
+          filtered = data.filter((u) => u.managerId === user.uid);
+        }
+        // المراقب العام يشوف المراقبين التابعين له فقط
+        else if (user?.role === 'general_supervisor') {
+          filtered = data.filter((u) => u.managerId === user.uid);
+        }
+        setUsers(filtered);
+        setLoading(false);
+      },
+      effectiveCompanyId,
+    );
     return unsub;
-  }, [effectiveCompanyId]);
+  }, [effectiveCompanyId, user?.role, user?.uid]);
 
   async function create(data: { email: string; password: string; displayName: string; role: UserRole; companyId: string; managerId?: string }) {
     return createUserWithSecondaryApp(data.email, data.password, data.displayName, data.role, data.companyId, data.managerId);
@@ -148,10 +165,23 @@ export function useRegistrationRequests() {
 
   useEffect(() => {
     setLoading(true);
+
+    // super_admin: كل الشركات
+    // sales_manager: شركته كلها
+    // general_supervisor / supervisor: الطلبات الموجهة إليهم فقط (managerId == uid)
     const companyFilter = user?.role === 'super_admin' ? undefined : user?.companyId;
-    const unsub = subscribeToRegistrationRequests((data) => { setRequests(data); setLoading(false); }, companyFilter);
+    const managerFilter =
+      (user?.role === 'general_supervisor' || user?.role === 'supervisor')
+        ? user?.uid
+        : undefined;
+
+    const unsub = subscribeToRegistrationRequests(
+      (data) => { setRequests(data); setLoading(false); },
+      companyFilter,
+      managerFilter,
+    );
     return unsub;
-  }, [user?.role, user?.companyId]);
+  }, [user?.role, user?.companyId, user?.uid]);
 
   return { requests, loading };
 }

@@ -17,7 +17,7 @@ const JOINABLE_ROLES: UserRole[] = [
 ];
 
 // الأدوار التي لا تحتاج إلى مدير مباشر (sales_manager يتبع super_admin مباشرة)
-const ROLES_WITHOUT_MANAGER: UserRole[] = ['sales_manager'];
+const ROLES_WITHOUT_MANAGER: UserRole[] = ['sales_manager', 'general_supervisor'];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -65,10 +65,13 @@ export default function Login() {
   const [joinEmail,      setJoinEmail]      = useState('');
   const [joinCompanyId,  setJoinCompanyId]  = useState('');
   const [joinRole,       setJoinRole]       = useState<UserRole>('agent');
-  const [joinManagerId,  setJoinManagerId]  = useState('');
+  const [joinManagerId,  setJoinManagerId]  = useState('');       // المراقب (supervisor) أو المراقب العام (general_supervisor)
+  const [joinSupervisorId, setJoinSupervisorId] = useState('');   // المراقب عند اختيار general_supervisor كـ manager
   const [companies,      setCompanies]      = useState<Company[]>([]);
-  const [managers,       setManagers]       = useState<User[]>([]);
+  const [managers,       setManagers]       = useState<User[]>([]);   // المراقب العام أو المراقب حسب الدور
+  const [supervisors,    setSupervisors]    = useState<User[]>([]);   // المراقبون التابعون للمراقب العام
   const [managersLoading, setManagersLoading] = useState(false);
+  const [supervisorsLoading, setSupervisorsLoading] = useState(false);
   const [joinSubmitted,  setJoinSubmitted]  = useState(false);
   const [joinError,      setJoinError]      = useState('');
   const [joinLoading,    setJoinLoading]    = useState(false);
@@ -80,12 +83,14 @@ export default function Login() {
       .catch(() => setCompanies([]));
   }, []);
 
-  // ── Load managers when company or role changes ────────────────────────────
+  // ── Load managers (general_supervisor or supervisor) when company/role changes ──
   useEffect(() => {
     setJoinManagerId('');
     setManagers([]);
+    setJoinSupervisorId('');
+    setSupervisors([]);
 
-    // الأدوار التي لا تحتاج مدير — نوقف الـ fetch
+    // الأدوار التي لا تحتاج مدير مباشر — نوقف الـ fetch
     if (!joinCompanyId || !joinRole || ROLES_WITHOUT_MANAGER.includes(joinRole)) return;
 
     setManagersLoading(true);
@@ -94,6 +99,15 @@ export default function Login() {
       .catch(() => setManagers([]))
       .finally(() => setManagersLoading(false));
   }, [joinCompanyId, joinRole]);
+
+  // ── عند اختيار مراقب عام، جيب المراقبين التابعين له (للمستخدم اللي role=supervisor) ──
+  useEffect(() => {
+    setJoinSupervisorId('');
+    setSupervisors([]);
+    if (!joinManagerId || joinRole !== 'supervisor') return;
+    // المراقب يتبع مراقب عام — جيب المراقبين العاميين للشركة (نعرضهم كاختيار)
+    // هنا نعرض المراقب العام المختار فعلاً — مش محتاجين fetch إضافي
+  }, [joinManagerId, joinRole]);
 
   // ── Redirect if already logged in ─────────────────────────────────────────
   if (loading) {
@@ -133,7 +147,11 @@ export default function Login() {
     // فحص المدير المباشر للأدوار التي تحتاجه
     const needsManager = !ROLES_WITHOUT_MANAGER.includes(joinRole);
     if (needsManager && managers.length > 0 && !joinManagerId) {
-      setJoinError('اختر المدير المباشر');
+      const label =
+        joinRole === 'group_leader' || joinRole === 'agent'
+          ? 'اختر المراقب'
+          : 'اختر المراقب العام';
+      setJoinError(label);
       return;
     }
 
@@ -145,7 +163,6 @@ export default function Login() {
       await submitRegistrationRequest({
         displayName:   joinName.trim(),
         email:         joinEmail.trim(),
-        // FIX #1: كلمة المرور لا تُرسل للـ backend — المستخدم سيستقبل إيميل لتعيينها
         companyId:     joinCompanyId,
         companyName:   company?.name ?? '',
         requestedRole: joinRole,
@@ -361,41 +378,49 @@ export default function Login() {
                     </select>
                   </div>
 
-                  {/* 6. المدير المباشر — يظهر فقط إذا:
-                       - الدور يحتاج مدير (ليس sales_manager)
-                       - تم اختيار شركة
-                       - يوجد مديرون في النظام */}
-                  {!ROLES_WITHOUT_MANAGER.includes(joinRole) && joinCompanyId && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                        المدير المباشر
-                        {managers.length > 0 && <span className="text-red-500"> *</span>}
-                      </label>
-                      {managersLoading ? (
-                        <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-400">
-                          <Loader2 size={14} className="animate-spin" />
-                          جاري البحث عن المديرين...
-                        </div>
-                      ) : managers.length === 0 ? (
-                        <div className="px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-700">
-                          لا يوجد مديرون متاحون لهذه الوظيفة في الشركة المختارة.
-                          سيتم تعيين مديرك لاحقاً بعد الموافقة على طلبك.
-                        </div>
-                      ) : (
-                        <select
-                          value={joinManagerId}
-                          onChange={(e) => setJoinManagerId(e.target.value)}
-                          required
-                          className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                          <option value="">— اختر المدير —</option>
-                          {managers.map((m) => (
-                            <option key={m.uid} value={m.uid}>{m.displayName}</option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                  )}
+                  {/* 6. المراقب العام / المراقب — يظهر حسب الدور المطلوب */}
+                  {!ROLES_WITHOUT_MANAGER.includes(joinRole) && joinCompanyId && (() => {
+                    // تحديد label المدير المناسب للدور
+                    const managerLabel =
+                      joinRole === 'supervisor'
+                        ? 'المراقب العام'
+                        : joinRole === 'group_leader'
+                        ? 'المراقب'
+                        : joinRole === 'agent'
+                        ? 'المراقب'
+                        : 'المدير المباشر';
+                    return (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                          {managerLabel}
+                          {managers.length > 0 && <span className="text-red-500"> *</span>}
+                        </label>
+                        {managersLoading ? (
+                          <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-400">
+                            <Loader2 size={14} className="animate-spin" />
+                            جاري البحث...
+                          </div>
+                        ) : managers.length === 0 ? (
+                          <div className="px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-700">
+                            لا يوجد {managerLabel} متاح في الشركة المختارة.
+                            سيتم تعيينه لاحقاً بعد الموافقة على طلبك.
+                          </div>
+                        ) : (
+                          <select
+                            value={joinManagerId}
+                            onChange={(e) => setJoinManagerId(e.target.value)}
+                            required
+                            className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="">— اختر {managerLabel} —</option>
+                            {managers.map((m) => (
+                              <option key={m.uid} value={m.uid}>{m.displayName}</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {/* Submit */}
                   <button

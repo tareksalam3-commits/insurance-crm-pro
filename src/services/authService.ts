@@ -154,13 +154,15 @@ export async function submitRegistrationRequest(
 
 export function subscribeToRegistrationRequests(
   callback: (requests: RegistrationRequest[]) => void,
-  companyId?: string
+  companyId?: string,
+  managerId?: string   // للمراقب/المراقب العام — يشوفوا الطلبات الموجهة إليهم فقط
 ): () => void {
   const constraints: any[] = [
     where('status', '==', 'pending'),
     orderBy('createdAt', 'desc'),
   ];
   if (companyId) constraints.push(where('companyId', '==', companyId));
+  if (managerId) constraints.push(where('managerId', '==', managerId));
   const q = query(collection(db, 'registrationRequests'), ...constraints);
   return onSnapshot(q, (snap) => {
     callback(snap.docs.map((d) => ({ id: d.id, ...d.data() } as RegistrationRequest)));
@@ -179,7 +181,7 @@ export function subscribeToRegistrationRequests(
  */
 export async function approveRegistrationRequest(
   request: RegistrationRequest
-): Promise<void> {
+): Promise<{ newUid: string }> {
   const tempPassword = `Tmp_${Math.random().toString(36).slice(2, 10)}!`;
 
   const newUid = await createUserWithSecondaryApp(
@@ -229,6 +231,8 @@ export async function approveRegistrationRequest(
   } catch (emailErr) {
     console.warn('EmailJS failed (Firebase reset email was sent):', emailErr);
   }
+
+  return { newUid };
 }
 
 // FIX #5: rejectRegistrationRequest تغيّر الحالة إلى rejected بدل الحذف

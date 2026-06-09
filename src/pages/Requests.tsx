@@ -1,19 +1,35 @@
 import { useState } from 'react';
-import { ClipboardList, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { ClipboardList, CheckCircle, XCircle, Loader2, Users } from 'lucide-react';
 import { useRegistrationRequests } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
-import { approveRegistrationRequest, rejectRegistrationRequest } from '../services/authService';
+import { usePermissions } from '../hooks/usePermissions';
+import {
+  approveRegistrationRequest,
+  rejectRegistrationRequest,
+  updateUserProfile,
+  getPotentialManagers,
+} from '../services/authService';
 import { ROLE_LABELS } from '../types';
-import type { RegistrationRequest } from '../types';
+import type { RegistrationRequest, User } from '../types';
 
 export default function Requests() {
   const { user } = useAuth();
+  const permissions = usePermissions();
   const { requests, loading } = useRegistrationRequests();
   const [processingId, setProcessingId] = useState<string | null>(null);
 
-  const canManage = ['super_admin', 'sales_manager'].includes(user?.role ?? '');
+  // حالة تعيين رئيس المجموعة بعد الموافقة
+  const [assignModal, setAssignModal] = useState<{
+    uid: string;
+    displayName: string;
+    companyId: string;
+  } | null>(null);
+  const [groupLeaders, setGroupLeaders] = useState<User[]>([]);
+  const [selectedLeaderId, setSelectedLeaderId] = useState('');
+  const [assignLoading, setAssignLoading] = useState(false);
+  const [leadersLoading, setLeadersLoading] = useState(false);
 
-  if (!canManage) {
+  if (!permissions.canApproveRequests) {
     return (
       <div className="flex items-center justify-center py-20 text-gray-400">
         <p className="text-sm">غير مصرح لك</p>
@@ -24,7 +40,18 @@ export default function Requests() {
   async function handleApprove(req: RegistrationRequest) {
     setProcessingId(req.id);
     try {
-      await approveRegistrationRequest(req);
+      const result = await approveRegistrationRequest(req);
+      // إذا كان الدور agent، نعرض modal لتعيين رئيس المجموعة
+      if (req.requestedRole === 'agent' && result?.newUid) {
+        // جيب رؤساء المجموعات في نفس الشركة
+        setLeadersLoading(true);
+        setAssignModal({ uid: result.newUid, displayName: req.displayName, companyId: req.companyId });
+        setSelectedLeaderId('');
+        getPotentialManagers(req.companyId, 'agent')
+          .then((mgrs) => setGroupLeaders(mgrs))
+          .catch(() => setGroupLeaders([]))
+          .finally(() => setLeadersLoading(false));
+      }
     } catch (e) {
       console.error(e);
       alert('حدث خطأ أثناء الموافقة');
@@ -45,6 +72,21 @@ export default function Requests() {
     }
   }
 
+  async function handleAssignLeader() {
+    if (!assignModal) return;
+    setAssignLoading(true);
+    try {
+      if (selectedLeaderId) {
+        await updateUserProfile(assignModal.uid, { managerId: selectedLeaderId });
+      }
+      setAssignModal(null);
+    } catch {
+      alert('حدث خطأ أثناء تعيين رئيس المجموعة');
+    } finally {
+      setAssignLoading(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
@@ -56,6 +98,14 @@ export default function Requests() {
           </span>
         )}
       </div>
+
+      {/* توضيح الصلاحية */}
+      {(user?.role === 'general_supervisor' || user?.role === 'supervisor') && (
+        <div className="px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
+          تعرض هذه الصفحة الطلبات الموجهة إليك فقط.
+          {user.role === 'supervisor' && ' بعد الموافقة يمكنك تعيين رئيس المجموعة للوكيل.'}
+        </div>
+      )}
 
       {loading ? (
         <div className="space-y-3">{[...Array(3)].map((_, i) => <div key={i} className="h-28 bg-gray-100 rounded-2xl animate-pulse" />)}</div>
@@ -86,7 +136,7 @@ export default function Requests() {
 
                     {req.managerName && (
                       <p className="text-xs text-gray-400 mt-1.5">
-                        المدير: {req.managerName}
+                        المرجع: {req.managerName}
                       </p>
                     )}
                   </div>
@@ -113,6 +163,60 @@ export default function Requests() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* ── Modal تعيين رئيس المجموعة ── */}
+      {assignModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" dir="rtl">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4">
+            <div className="flex items-center gap-2 text-blue-600">
+              <Users size={20} />
+              <h2 className="font-bold text-gray-900">تعيين رئيس المجموعة</h2>
+            </div>
+            <p className="text-sm text-gray-600">
+              تمت الموافقة على <span className="font-semibold">{assignModal.displayName}</span>. هل تريد تعيين رئيس مجموعة له الآن؟
+            </p>
+
+            {leadersLoading ? (
+              <div className="flex items-center gap-2 text-sm text-gray-400">
+                <Loader2 size={14} className="animate-spin" />
+                جاري تحميل رؤساء المجموعات...
+              </div>
+            ) : groupLeaders.length === 0 ? (
+              <div className="px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+                لا يوجد رؤساء مجموعات متاحون في هذه الشركة. يمكن تعيينه لاحقاً من صفحة المستخدمين.
+              </div>
+            ) : (
+              <select
+                value={selectedLeaderId}
+                onChange={(e) => setSelectedLeaderId(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">— تخطي / بدون تعيين الآن —</option>
+                {groupLeaders.map((l) => (
+                  <option key={l.uid} value={l.uid}>{l.displayName}</option>
+                ))}
+              </select>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                onClick={handleAssignLeader}
+                disabled={assignLoading}
+                className="flex-1 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                {assignLoading && <Loader2 size={14} className="animate-spin" />}
+                {selectedLeaderId ? 'تعيين' : 'تخطي'}
+              </button>
+              <button
+                onClick={() => setAssignModal(null)}
+                className="flex-1 py-2.5 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl hover:bg-gray-200"
+              >
+                إغلاق
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
