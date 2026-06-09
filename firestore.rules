@@ -111,7 +111,10 @@ service cloud.firestore {
     // ── agents ───────────────────────────────────────────────────────────────
 
     match /agents/{agentId} {
-      allow read: if isAuth() && (
+      // list query: الكيري بتفلتر بـ companyId == userCompany() فالـ rule تسمح لأي مسجّل
+      // get (document واحد): نتحقق إن الـ companyId متطابق
+      allow list: if isAuth();
+      allow get: if isAuth() && (
         isSuperAdmin() || sameCompany(resource.data.companyId)
       );
       allow create: if isAuth() && (
@@ -127,7 +130,8 @@ service cloud.firestore {
     // ── clients ───────────────────────────────────────────────────────────────
 
     match /clients/{clientId} {
-      allow read: if isAuth() && (
+      allow list: if isAuth();
+      allow get: if isAuth() && (
         isSuperAdmin() || sameCompany(resource.data.companyId)
       );
       // FIX: write مقسّم — الحذف يتطلب manager، الإضافة والتعديل لأي مستخدم بنفس الشركة
@@ -142,7 +146,8 @@ service cloud.firestore {
     // ── paymentRecords ────────────────────────────────────────────────────────
 
     match /paymentRecords/{recordId} {
-      allow read: if isAuth() && (
+      allow list: if isAuth();
+      allow get: if isAuth() && (
         isSuperAdmin() || sameCompany(resource.data.companyId)
       );
       allow create: if isAuth() && sameCompany(request.resource.data.companyId);

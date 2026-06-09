@@ -10,12 +10,12 @@ const COL = 'agents';
 export async function getAgents(companyId: string, filters?: { group?: string }): Promise<Agent[]> {
   const constraints: QueryConstraint[] = [
     where('companyId', '==', companyId),
-    orderBy('name', 'asc'),
   ];
   if (filters?.group) constraints.push(where('group', '==', filters.group));
   const q = query(collection(db, COL), ...constraints);
   const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Agent));
+  const agents = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Agent));
+  return agents.sort((a, b) => a.name.localeCompare(b.name, 'ar'));
 }
 
 export function subscribeToAgents(
@@ -25,12 +25,12 @@ export function subscribeToAgents(
 ): () => void {
   const constraints: QueryConstraint[] = [
     where('companyId', '==', companyId),
-    orderBy('name', 'asc'),
   ];
   if (filters?.group) constraints.push(where('group', '==', filters.group));
   const q = query(collection(db, COL), ...constraints);
   return onSnapshot(q, (snap) => {
-    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Agent)));
+    const agents = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Agent));
+    callback(agents.sort((a, b) => a.name.localeCompare(b.name, 'ar')));
   });
 }
 
