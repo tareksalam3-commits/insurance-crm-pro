@@ -9,7 +9,7 @@ import type { Client, Agent, User, Company, RegistrationRequest, UserRole } from
 
 // ─── useClients ────────────────────────────────────────────────────────────────
 
-export function useClients(filters?: { agentName?: string; group?: string }) {
+export function useClients(filters?: { agentName?: string; agentId?: string; group?: string }) {
   const { user } = useAuth();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
@@ -18,14 +18,14 @@ export function useClients(filters?: { agentName?: string; group?: string }) {
     if (!user?.companyId) { setClients([]); setLoading(false); return; }
     setLoading(true);
 
-    const roleFilters: { agentId?: string; agentName?: string; group?: string } = { ...filters };
+    const roleFilters: { agentId?: string; agentName?: string; group?: string; supervisorId?: string } = { ...filters };
 
     if (user.role === 'agent') {
-      // FIX #4: فلتر بالـ uid الثابت وليس بالاسم القابل للتغيير
+      // الوكيل يشوف عملاؤه بس عن طريق uid
       roleFilters.agentId = user.uid;
     } else if (user.role === 'group_leader') {
-      // FIX #3: group_leader يشوف مجموعته فقط عبر groupId
-      if (user.groupId) roleFilters.group = user.groupId;
+      // رئيس المجموعة يشوف عملاء مجموعته فقط (عن طريق supervisorId = uid)
+      roleFilters.supervisorId = user.uid;
     }
 
     const unsub = subscribeToClients(
@@ -34,12 +34,10 @@ export function useClients(filters?: { agentName?: string; group?: string }) {
       roleFilters
     );
     return unsub;
-  // FIX #4: uid بدل displayName في deps، وagentId الفلتر الفعلي
-  }, [user?.companyId, user?.role, user?.uid, user?.groupId, filters?.agentId, filters?.group]);
+  }, [user?.companyId, user?.role, user?.uid, filters?.agentId, filters?.group]);
 
   async function create(data: Omit<Client, 'id' | 'createdAt'>) {
     if (!user?.companyId) return;
-    // FIX #4: agentId يُحفظ تلقائياً للوكيل
     const agentId = user.role === 'agent' ? user.uid : (data.agentId || '');
     return addClient({ ...data, agentId, companyId: user.companyId });
   }
@@ -49,7 +47,6 @@ export function useClients(filters?: { agentName?: string; group?: string }) {
   }
 
   async function remove(id: string) {
-    // FIX #7: deleteClient الآن يحذف سجلات التحصيل cascade
     return deleteClient(id);
   }
 

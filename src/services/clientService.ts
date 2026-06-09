@@ -52,17 +52,16 @@ function normalizeClient(id: string, data: Record<string, any>): Client {
 export function subscribeToClients(
   callback: (clients: Client[]) => void,
   companyId: string,
-  // FIX #4: فلتر agentId مضاف بجانب agentName
-  filters?: { agentName?: string; agentId?: string; group?: string }
+  filters?: { agentName?: string; agentId?: string; group?: string; supervisorId?: string }
 ): () => void {
   const constraints: QueryConstraint[] = [
     where('companyId', '==', companyId),
     orderBy('createdAt', 'desc'),
   ];
-  // FIX #4: نفضّل agentId إذا موجود، وإلا نرجع لـ agentName (للبيانات القديمة)
-  if (filters?.agentId)   constraints.push(where('agentId', '==', filters.agentId));
+  if (filters?.agentId)      constraints.push(where('agentId', '==', filters.agentId));
   else if (filters?.agentName) constraints.push(where('agentName', '==', filters.agentName));
-  if (filters?.group)     constraints.push(where('group', '==', filters.group));
+  if (filters?.supervisorId) constraints.push(where('supervisorId', '==', filters.supervisorId));
+  if (filters?.group)        constraints.push(where('group', '==', filters.group));
 
   const q = query(collection(db, COL), ...constraints);
   return onSnapshot(q, (snap) => {

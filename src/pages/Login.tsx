@@ -1,5 +1,5 @@
 import { useState, useEffect, type FormEvent } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { signIn, submitRegistrationRequest, getPotentialManagers } from '../services/authService';
 import { getCompanies } from '../services/companyService';
@@ -40,7 +40,18 @@ function mapFirebaseError(code: string): string {
 
 export default function Login() {
   const { firebaseUser, loading } = useAuth();
+  const navigate = useNavigate();
   const [tab, setTab] = useState<'login' | 'join'>('login');
+
+  // ── إعادة توجيه Firebase action URLs (reset password) ─────────────────────
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const mode    = params.get('mode');
+    const oobCode = params.get('oobCode');
+    if (mode === 'resetPassword' && oobCode) {
+      navigate(`/reset-password?oobCode=${oobCode}`, { replace: true });
+    }
+  }, [navigate]);
 
   // ── Login state ───────────────────────────────────────────────────────────
   const [email,        setEmail]        = useState('');

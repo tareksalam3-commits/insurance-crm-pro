@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '../../hooks/useAuth';
-import { signOut } from '../../services/authService';
+import { signOut, subscribeToRegistrationRequests } from '../../services/authService';
 import { subscribeToClients } from '../../services/clientService';
 import { MONTH_LIST, ROLE_LABELS } from '../../types';
 import { isCollectionMonth, isNewProductionMonth } from '../../services/paymentService';
@@ -19,7 +19,9 @@ export function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
   const [dueCount, setDueCount] = useState(0);
+  const [requestsCount, setRequestsCount] = useState(0);
 
+  // إشعارات التحصيل
   useEffect(() => {
     if (!user?.companyId) return;
     const unsub = subscribeToClients(
@@ -37,14 +39,26 @@ export function Layout() {
         setDueCount(count);
       },
       user.companyId,
-      user.role === 'agent' ? { agentName: user.displayName } : undefined
+      user.role === 'agent' ? { agentId: user.uid } : undefined
     );
     return unsub;
-  }, [user?.companyId, user?.role, user?.displayName]);
+  }, [user?.companyId, user?.role, user?.uid]);
+
+  // إشعارات طلبات الانضمام — للمديرين فقط
+  useEffect(() => {
+    if (!permissions.canApproveRequests || !user?.companyId) return;
+    const companyFilter = user.role === 'super_admin' ? undefined : user.companyId;
+    const unsub = subscribeToRegistrationRequests(
+      (data) => setRequestsCount(data.length),
+      companyFilter
+    );
+    return unsub;
+  }, [permissions.canApproveRequests, user?.role, user?.companyId]);
 
   const role = user?.role ?? 'agent';
+  const totalBadge = dueCount + requestsCount;
 
-  // ── Nav items — كل item بيتحكم فيه الصلاحيات ──────────────────────────────
+  // ── Nav items ──────────────────────────────────────────────────────────────
   const navItems = [
     {
       to: '/',
@@ -68,15 +82,13 @@ export function Layout() {
       to: '/collections',
       label: 'التحصيل',
       icon: Wallet,
-      show: true, // كل الأدوار تشوف التحصيل
+      show: true,
       badge: dueCount > 0 ? dueCount : null,
     },
     {
       to: '/agents',
       label: 'الوكلاء',
       icon: UserCheck,
-      // كل الأدوار من sales_manager لـ group_leader تشوف الصفحة
-      // الإضافة والتعديل والحذف بتتحكم فيها الصلاحيات جوه الصفحة نفسها
       show: ['sales_manager', 'general_supervisor', 'supervisor', 'group_leader'].includes(role),
     },
     {
@@ -102,6 +114,7 @@ export function Layout() {
       label: 'طلبات الانضمام',
       icon: ClipboardList,
       show: permissions.canApproveRequests,
+      badge: requestsCount > 0 ? requestsCount : null,
     },
     {
       to: '/companies',
@@ -232,13 +245,13 @@ export function Layout() {
 
           <div className="relative">
             <button
-              onClick={() => navigate('/collections')}
+              onClick={() => navigate(requestsCount > 0 ? '/requests' : '/collections')}
               className="p-2 rounded-xl text-gray-500 hover:bg-gray-100 transition-colors relative"
             >
               <Bell size={20} />
-              {dueCount > 0 && (
+              {totalBadge > 0 && (
                 <span className="absolute -top-0.5 -left-0.5 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
-                  {dueCount > 9 ? '9+' : dueCount}
+                  {totalBadge > 9 ? '9+' : totalBadge}
                 </span>
               )}
             </button>

@@ -144,6 +144,7 @@ service cloud.firestore {
       allow read: if isAuth() && resource.data.recipientId == request.auth.uid;
       allow create: if isAuth();
       allow update: if isAuth() && resource.data.recipientId == request.auth.uid;
+      allow delete: if isAuth() && resource.data.recipientId == request.auth.uid;
     }
   }
 }

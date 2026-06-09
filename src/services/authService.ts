@@ -126,6 +126,29 @@ export async function submitRegistrationRequest(
     status: 'pending',
     createdAt: serverTimestamp(),
   });
+
+  // إرسال إشعار للمدير المباشر وكل المديرين فوقه في نفس الشركة
+  const managerRoles = ['sales_manager', 'general_supervisor', 'supervisor', 'group_leader'];
+  const managersSnap = await getDocs(query(
+    collection(db, 'users'),
+    where('companyId', '==', data.companyId),
+    where('role', 'in', managerRoles),
+  ));
+
+  const notifPromises = managersSnap.docs.map((d) =>
+    addDoc(collection(db, 'notifications'), {
+      type:        'registration_request',
+      recipientId: d.id,
+      companyId:   data.companyId,
+      requestId:   ref.id,
+      applicantName: data.displayName,
+      requestedRole: data.requestedRole,
+      read:        false,
+      createdAt:   serverTimestamp(),
+    })
+  );
+  await Promise.all(notifPromises);
+
   return ref.id;
 }
 
@@ -157,7 +180,6 @@ export function subscribeToRegistrationRequests(
 export async function approveRegistrationRequest(
   request: RegistrationRequest
 ): Promise<void> {
-  // كلمة مرور مؤقتة عشوائية — المستخدم سيغيّرها عبر إيميل إعادة التعيين
   const tempPassword = `Tmp_${Math.random().toString(36).slice(2, 10)}!`;
 
   const newUid = await createUserWithSecondaryApp(
@@ -169,11 +191,13 @@ export async function approveRegistrationRequest(
     request.managerId || undefined,
   );
 
-  // إضافة في agents تلقائياً
+  // إضافة في agents مع uid للربط الصح
   await addDoc(collection(db, 'agents'), {
+    uid:            newUid,
     companyId:      request.companyId,
     name:           request.displayName,
-    group:          '',
+    email:          request.email,
+    group:          request.managerId || '',
     productionType: request.requestedRole,
     target:         DEFAULT_TARGETS[request.requestedRole] ?? 0,
     supervisorId:   request.managerId || '',
@@ -188,7 +212,7 @@ export async function approveRegistrationRequest(
     approvedUid: newUid,
   });
 
-  // إرسال إيميل إعادة تعيين كلمة المرور مع تحديد الـ URL الصح
+  // إرسال إيميل إعادة تعيين كلمة المرور
   const appUrl = window.location.origin;
   await sendPasswordResetEmail(auth, request.email, {
     url: `${appUrl}/reset-password`,
@@ -203,7 +227,6 @@ export async function approveRegistrationRequest(
       `${appUrl}/reset-password`,
     );
   } catch (emailErr) {
-    // لو EmailJS فشل، الـ Firebase reset email اتبعت فعلاً — مش مشكلة حرجة
     console.warn('EmailJS failed (Firebase reset email was sent):', emailErr);
   }
 }
