@@ -188,15 +188,20 @@ export async function approveRegistrationRequest(
     approvedUid: newUid,
   });
 
-  // توليد رابط إعادة تعيين كلمة المرور وإرسال إيميل الترحيب
-  await sendPasswordResetEmail(auth, request.email);
-
-  // إرسال إيميل الترحيب المخصص عبر EmailJS مع رابط تعيين كلمة المرور
-  // الرابط بيتولّد من Firebase Auth تلقائياً — نستخدم رابط الـ app مباشرة
+  // إرسال إيميل إعادة تعيين كلمة المرور مع تحديد الـ URL الصح
   const appUrl = window.location.origin;
-  const resetLink = `${appUrl}/login?reset=1`;
+  await sendPasswordResetEmail(auth, request.email, {
+    url: `${appUrl}/reset-password`,
+    handleCodeInApp: true,
+  });
+
+  // إرسال إيميل الترحيب المخصص عبر EmailJS
   try {
-    await sendWelcomeEmail(request.displayName, request.email, resetLink);
+    await sendWelcomeEmail(
+      request.displayName,
+      request.email,
+      `${appUrl}/reset-password`,
+    );
   } catch (emailErr) {
     // لو EmailJS فشل، الـ Firebase reset email اتبعت فعلاً — مش مشكلة حرجة
     console.warn('EmailJS failed (Firebase reset email was sent):', emailErr);

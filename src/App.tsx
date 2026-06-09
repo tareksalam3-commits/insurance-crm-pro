@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './hooks/useAuth';
 import { Layout } from './components/layout/Layout';
 
 import Login from './pages/Login';
+import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/Dashboard';
 import MyDashboard from './pages/MyDashboard';
 import Clients from './pages/Clients';
@@ -99,6 +100,7 @@ function AppRoutes() {
       {/* صفحة علنية — لا تحتاج دخول */}
       <Route path="/data-deletion" element={<DataDeletion />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
 
       <Route
         path="/"
