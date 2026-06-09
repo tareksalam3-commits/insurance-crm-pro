@@ -17,7 +17,6 @@ import { initializeApp, deleteApp } from 'firebase/app';
 import { auth, db, firebaseConfig } from '../firebase/config';
 import type { User, UserRole, RegistrationRequest } from '../types';
 import { MANAGER_ROLE_FOR } from '../hooks/usePermissions';
-import { sendWelcomeEmail } from './emailService';
 
 // التارجت الافتراضي لكل وظيفة حسب اللائحة
 const DEFAULT_TARGETS: Partial<Record<UserRole, number>> = {
@@ -104,20 +103,13 @@ export async function updateUserProfile(
   await updateDoc(doc(db, 'users', uid), { ...data, updatedAt: serverTimestamp() });
 }
 
-// FIX #2: deleteUserProfile تحذف الـ Firestore doc فقط.
-// حذف حساب Firebase Auth يتطلب Admin SDK (Cloud Function).
-// تم وضع تعليق واضح لمنع الخطأ من الاكتشاف لاحقاً.
 export async function deleteUserProfile(uid: string): Promise<void> {
   await deleteDoc(doc(db, 'users', uid));
-  // ⚠️ تنبيه: حساب Firebase Auth لا يُحذف هنا.
-  // لحذف الحساب بالكامل، أضف Cloud Function تستدعي admin.auth().deleteUser(uid)
-  // وابعت إليها uid بعد حذف الـ doc.
+  // ⚠️ حساب Firebase Auth لا يُحذف هنا — يتطلب Admin SDK
 }
 
 // ─── Registration Requests ────────────────────────────────────────────────────
 
-// FIX #1: submitRegistrationRequest لا تحفظ كلمة المرور نهائياً.
-// المستخدم يضبط كلمة المرور بنفسه بعد الموافقة عبر رابط إعادة تعيين.
 export async function submitRegistrationRequest(
   data: Omit<RegistrationRequest, 'id' | 'status' | 'createdAt'>
 ): Promise<string> {
@@ -127,27 +119,39 @@ export async function submitRegistrationRequest(
     createdAt: serverTimestamp(),
   });
 
-  // إرسال إشعار للمدير المباشر وكل المديرين فوقه في نفس الشركة
-  const managerRoles = ['sales_manager', 'general_supervisor', 'supervisor', 'group_leader'];
-  const managersSnap = await getDocs(query(
-    collection(db, 'users'),
-    where('companyId', '==', data.companyId),
-    where('role', 'in', managerRoles),
-  ));
-
-  const notifPromises = managersSnap.docs.map((d) =>
-    addDoc(collection(db, 'notifications'), {
-      type:        'registration_request',
-      recipientId: d.id,
-      companyId:   data.companyId,
-      requestId:   ref.id,
+  // إشعار للمدير المباشر فقط (مش كل المديرين)
+  if (data.managerId) {
+    await addDoc(collection(db, 'notifications'), {
+      type:          'registration_request',
+      recipientId:   data.managerId,
+      companyId:     data.companyId,
+      requestId:     ref.id,
       applicantName: data.displayName,
       requestedRole: data.requestedRole,
-      read:        false,
-      createdAt:   serverTimestamp(),
-    })
-  );
-  await Promise.all(notifPromises);
+      read:          false,
+      createdAt:     serverTimestamp(),
+    });
+  } else {
+    // لو مفيش مدير مباشر (sales_manager) — إشعار لكل sales_manager في الشركة
+    const managersSnap = await getDocs(query(
+      collection(db, 'users'),
+      where('companyId', '==', data.companyId),
+      where('role', '==', 'sales_manager'),
+    ));
+    const notifPromises = managersSnap.docs.map((d) =>
+      addDoc(collection(db, 'notifications'), {
+        type:          'registration_request',
+        recipientId:   d.id,
+        companyId:     data.companyId,
+        requestId:     ref.id,
+        applicantName: data.displayName,
+        requestedRole: data.requestedRole,
+        read:          false,
+        createdAt:     serverTimestamp(),
+      })
+    );
+    await Promise.all(notifPromises);
+  }
 
   return ref.id;
 }
@@ -155,7 +159,7 @@ export async function submitRegistrationRequest(
 export function subscribeToRegistrationRequests(
   callback: (requests: RegistrationRequest[]) => void,
   companyId?: string,
-  managerId?: string   // للمراقب/المراقب العام — يشوفوا الطلبات الموجهة إليهم فقط
+  managerId?: string
 ): () => void {
   const constraints: any[] = [
     where('status', '==', 'pending'),
@@ -171,17 +175,17 @@ export function subscribeToRegistrationRequests(
 
 /**
  * الموافقة على طلب تسجيل:
- * 1. ينشئ حساب Firebase Auth بكلمة مرور مؤقتة
- * 2. يرسل إيميل إعادة تعيين كلمة المرور للمستخدم
- * 3. يضيف doc في users
- * 4. يضيف record في agents تلقائياً
- * 5. يحدّث حالة الطلب إلى approved
- *
- * FIX #1: كلمة المرور المؤقتة عشوائية ولا تُحفظ في Firestore.
+ * 1. ينشئ حساب Firebase Auth بكلمة مرور مؤقتة عشوائية (لا تُحفظ)
+ * 2. يضيف doc في users بـ status: 'active'
+ * 3. يضيف record في agents
+ * 4. يحدّث حالة الطلب إلى approved
+ * 5. يبعت إيميل reset password — المستخدم يضغط اللينك ويحط كلمة سر جديدة
+ *    ثم يسجل دخول عادي
  */
 export async function approveRegistrationRequest(
   request: RegistrationRequest
 ): Promise<{ newUid: string }> {
+  // كلمة مرور مؤقتة عشوائية — لا تُحفظ في أي مكان
   const tempPassword = `Tmp_${Math.random().toString(36).slice(2, 10)}!`;
 
   const newUid = await createUserWithSecondaryApp(
@@ -193,7 +197,7 @@ export async function approveRegistrationRequest(
     request.managerId || undefined,
   );
 
-  // إضافة في agents مع uid للربط الصح
+  // إضافة في agents
   await addDoc(collection(db, 'agents'), {
     uid:            newUid,
     companyId:      request.companyId,
@@ -214,29 +218,16 @@ export async function approveRegistrationRequest(
     approvedUid: newUid,
   });
 
-  // إرسال إيميل إعادة تعيين كلمة المرور
-  const appUrl = window.location.origin;
+  // إرسال إيميل reset password من Firebase مباشرة
+  // اللينك يوجه المستخدم على صفحة /reset-password في التطبيق
   await sendPasswordResetEmail(auth, request.email, {
-    url: `${appUrl}/reset-password`,
-    handleCodeInApp: true,
+    url: `${window.location.origin}/reset-password`,
+    handleCodeInApp: false,
   });
-
-  // إرسال إيميل الترحيب المخصص عبر EmailJS
-  try {
-    await sendWelcomeEmail(
-      request.displayName,
-      request.email,
-      `${appUrl}/reset-password`,
-    );
-  } catch (emailErr) {
-    console.warn('EmailJS failed (Firebase reset email was sent):', emailErr);
-  }
 
   return { newUid };
 }
 
-// FIX #5: rejectRegistrationRequest تغيّر الحالة إلى rejected بدل الحذف
-// حتى يبقى سجل بالطلبات المرفوضة ويعلم المستخدم بالرفض
 export async function rejectRegistrationRequest(requestId: string): Promise<void> {
   await updateDoc(doc(db, 'registrationRequests', requestId), {
     status:     'rejected',
