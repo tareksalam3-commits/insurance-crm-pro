@@ -192,18 +192,13 @@ export default function Login() {
     e.preventDefault();
     setJoinError('');
 
-    // Validation
+    // Validation - الحقول الإجبارية فقط
     if (!joinName.trim())      { setJoinError('الاسم الكامل مطلوب'); return; }
     if (!joinEmail.trim())     { setJoinError('البريد الإلكتروني مطلوب'); return; }
     if (!joinCompanyId)        { setJoinError('اختر الشركة'); return; }
     if (!joinRole)             { setJoinError('اختر الوظيفة'); return; }
-
-    // فحص السلسلة الهرمية حسب الدور
-    if (joinRole === 'agent' || joinRole === 'group_leader' || joinRole === 'supervisor') {
-      if (!joinGeneralSupervisorId) { setJoinError('اختر المراقب العام'); return; }
-      if (!joinSupervisorId)        { setJoinError('اختر المراقب'); return; }
-      if (joinRole === 'agent' && !joinGroupLeaderId) { setJoinError('اختر رئيس المجموعة'); return; }
-    }
+    
+    // المديرون اختياريون - ناخذ أي مدير متاح أو نتخطى المستويات
 
     setJoinLoading(true);
     try {
@@ -211,19 +206,37 @@ export default function Login() {
       let managerId = '';
       let managerName = '';
 
-      // تحديد المدير المباشر حسب الدور
+      // تحديد المدير المباشر حسب الدور - ناخذ أي متاح
       if (joinRole === 'agent') {
-        managerId = joinGroupLeaderId;
-        const leader = groupLeaders.find((l) => l.uid === joinGroupLeaderId);
-        managerName = leader?.displayName ?? '';
+        if (joinGroupLeaderId) {
+          managerId = joinGroupLeaderId;
+          const leader = groupLeaders.find((l) => l.uid === joinGroupLeaderId);
+          managerName = leader?.displayName ?? '';
+        } else if (joinSupervisorId) {
+          managerId = joinSupervisorId;
+          const supervisor = supervisors.find((s) => s.uid === joinSupervisorId);
+          managerName = supervisor?.displayName ?? '';
+        } else if (joinGeneralSupervisorId) {
+          managerId = joinGeneralSupervisorId;
+          const generalSupervisor = generalSupervisors.find((g) => g.uid === joinGeneralSupervisorId);
+          managerName = generalSupervisor?.displayName ?? '';
+        }
       } else if (joinRole === 'group_leader') {
-        managerId = joinSupervisorId;
-        const supervisor = supervisors.find((s) => s.uid === joinSupervisorId);
-        managerName = supervisor?.displayName ?? '';
+        if (joinSupervisorId) {
+          managerId = joinSupervisorId;
+          const supervisor = supervisors.find((s) => s.uid === joinSupervisorId);
+          managerName = supervisor?.displayName ?? '';
+        } else if (joinGeneralSupervisorId) {
+          managerId = joinGeneralSupervisorId;
+          const generalSupervisor = generalSupervisors.find((g) => g.uid === joinGeneralSupervisorId);
+          managerName = generalSupervisor?.displayName ?? '';
+        }
       } else if (joinRole === 'supervisor') {
-        managerId = joinGeneralSupervisorId;
-        const generalSupervisor = generalSupervisors.find((g) => g.uid === joinGeneralSupervisorId);
-        managerName = generalSupervisor?.displayName ?? '';
+        if (joinGeneralSupervisorId) {
+          managerId = joinGeneralSupervisorId;
+          const generalSupervisor = generalSupervisors.find((g) => g.uid === joinGeneralSupervisorId);
+          managerName = generalSupervisor?.displayName ?? '';
+        }
       }
 
       await submitRegistrationRequest({
