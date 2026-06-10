@@ -72,16 +72,10 @@ export default function Dashboard() {
       case 'sales_manager':
         return clients;
       case 'general_supervisor':
-        return clients.filter((c) =>
-          filteredAgents.some((a) => a.name === c.agentName)
-        );
       case 'supervisor':
-        return clients.filter((c) =>
-          filteredAgents.some((a) => a.name === c.agentName)
-        );
       case 'group_leader':
         return clients.filter((c) =>
-          filteredAgents.some((a) => a.name === c.agentName)
+          filteredAgents.some((a) => a.uid === c.agentId)
         );
       default:
         return clients;

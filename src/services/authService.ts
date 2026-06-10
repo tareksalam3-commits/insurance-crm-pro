@@ -208,16 +208,17 @@ export async function approveRegistrationRequest(
     request.managerId || undefined,
   );
 
-  // إضافة في agents — كل البيانات المطلوبة للفلترة
+  // إضافة في agents إذا كان الدور وكيل (أو أي دور إنتاجي آخر)
+  // ملاحظة: يتم إضافة السجل لجميع الأدوار لضمان ظهورهم في التقارير والإنتاج
   await addDoc(collection(db, 'agents'), {
-    uid:            newUid,          // uid الـ Firebase Auth — مهم للفلترة
+    uid:            newUid,
     companyId:      request.companyId,
     name:           request.displayName,
     email:          request.email,
-    group:          request.managerName || '',  // اسم المجموعة = اسم المدير المباشر
+    group:          request.managerName || '',  // اسم المجموعة
     productionType: request.requestedRole,
     target:         DEFAULT_TARGETS[request.requestedRole] ?? 0,
-    supervisorId:   request.managerId || '',   // uid المدير المباشر — للفلترة
+    supervisorId:   request.managerId || '',    // UID المدير المباشر
     managerName:    request.managerName || '',  // اسم المدير المباشر
     status:         'active',
     createdAt:      serverTimestamp(),

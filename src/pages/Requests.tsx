@@ -40,21 +40,8 @@ export default function Requests() {
   async function handleApprove(req: RegistrationRequest) {
     setProcessingId(req.id);
     try {
-      const result = await approveRegistrationRequest(req);
-
-      // إذا كان الدور agent نعرض modal لتعيين رئيس المجموعة
-      if (req.requestedRole === 'agent' && result?.newUid) {
-        setLeadersLoading(true);
-        setAssignModal({ uid: result.newUid, displayName: req.displayName, companyId: req.companyId });
-        setSelectedLeaderId('');
-        getPotentialManagers(req.companyId, 'agent')
-          .then((mgrs) => setGroupLeaders(mgrs))
-          .catch(() => setGroupLeaders([]))
-          .finally(() => setLeadersLoading(false));
-      } else {
-        // رسالة نجاح للأدوار الأخرى
-        alert('تمت موافقة الطلب بنجاح!');
-      }
+      await approveRegistrationRequest(req);
+      alert('تمت الموافقة على الطلب بنجاح! تم إنشاء الحساب وإضافة المستخدم إلى الوكلاء.');
     } catch (e) {
       // معالجة الخطأ بدون طباعة على console
       const errorMessage = e instanceof Error ? e.message : 'خطأ غير معروف';
@@ -179,62 +166,7 @@ export default function Requests() {
         </div>
       )}
 
-      {/* ── Modal تعيين رئيس المجموعة ── */}
-      {assignModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" dir="rtl">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4">
-            <div className="flex items-center gap-2 text-blue-600">
-              <Users size={20} />
-              <h2 className="font-bold text-gray-900">تعيين رئيس المجموعة</h2>
-            </div>
-            <p className="text-sm text-gray-600">
-              تمت الموافقة على <span className="font-semibold">{assignModal.displayName}</span> وتم إرسال إيميل لتعيين كلمة المرور.
-            </p>
-            <p className="text-sm text-gray-500">
-              هل تريد تعيين رئيس مجموعة له الآن؟
-            </p>
 
-            {leadersLoading ? (
-              <div className="flex items-center gap-2 text-sm text-gray-400">
-                <Loader2 size={14} className="animate-spin" />
-                جاري تحميل رؤساء المجموعات...
-              </div>
-            ) : groupLeaders.length === 0 ? (
-              <div className="px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
-                لا يوجد رؤساء مجموعات متاحون. يمكن تعيينه لاحقاً من صفحة المستخدمين.
-              </div>
-            ) : (
-              <select
-                value={selectedLeaderId}
-                onChange={(e) => setSelectedLeaderId(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">— تخطي / بدون تعيين الآن —</option>
-                {groupLeaders.map((l) => (
-                  <option key={l.uid} value={l.uid}>{l.displayName}</option>
-                ))}
-              </select>
-            )}
-
-            <div className="flex gap-2">
-              <button
-                onClick={handleAssignLeader}
-                disabled={assignLoading}
-                className="flex-1 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-1.5"
-              >
-                {assignLoading && <Loader2 size={14} className="animate-spin" />}
-                {selectedLeaderId ? 'تعيين' : 'تخطي'}
-              </button>
-              <button
-                onClick={() => setAssignModal(null)}
-                className="flex-1 py-2.5 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl hover:bg-gray-200"
-              >
-                إغلاق
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

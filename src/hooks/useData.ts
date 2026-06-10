@@ -129,11 +129,16 @@ export function useUsers(companyId?: string) {
   useEffect(() => {
     setLoading(true);
     const unsub = subscribeToUsers((data) => {
-      setUsers(data);
+      let result = data;
+      // فلترة المستخدمين للمراقبين ورؤساء المجموعات (يشوفوا مرؤوسيهم بس)
+      if (user && (user.role === 'general_supervisor' || user.role === 'supervisor' || user.role === 'group_leader')) {
+        result = data.filter((u) => u.managerId === user.uid);
+      }
+      setUsers(result);
       setLoading(false);
     }, effectiveCompanyId);
     return unsub;
-  }, [effectiveCompanyId]);
+  }, [effectiveCompanyId, user?.uid, user?.role]);
 
   async function create(data: { email: string; password: string; displayName: string; role: UserRole; companyId: string; managerId?: string }) {
     return createUserWithSecondaryApp(data.email, data.password, data.displayName, data.role, data.companyId, data.managerId);
