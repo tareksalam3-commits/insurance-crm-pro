@@ -77,6 +77,7 @@ export default function Clients() {
     setEditId(c.id);
     setForm({
       agentName: c.agentName, agentId: c.agentId ?? '', group: c.group, productionType: c.productionType,
+      supervisorId: c.supervisorId ?? '',
       clientName: c.clientName, startMonth: c.startMonth, startYear: c.startYear,
       annualTarget: c.annualTarget, paymentMethod: c.paymentMethod, paymentAmount: c.paymentAmount,
       lastCollectionMonth: c.lastCollectionMonth, phone: c.phone ?? '',

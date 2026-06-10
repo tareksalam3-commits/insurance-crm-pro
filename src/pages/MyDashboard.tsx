@@ -69,7 +69,7 @@ export default function MyDashboard() {
           <h1 className="text-lg font-bold text-gray-900">أدائي</h1>
         </div>
         <div className="flex gap-2">
-          <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}
+          <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value as typeof selectedMonth)}
             className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
             {MONTH_LIST.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
