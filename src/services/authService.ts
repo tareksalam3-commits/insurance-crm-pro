@@ -229,22 +229,13 @@ export async function rejectRegistrationRequest(requestId: string): Promise<void
   });
 }
 
-// ─── Potential Managers (إصلاح نهائي وآمن) ─────────────────────────────────────
+// ─── Potential Managers (إصلاح نهائي مبسط) ─────────────────────────────────────
 
 export async function getPotentialManagers(
   companyId: string,
   requestedRole: UserRole
 ): Promise<User[]> {
   try {
-    // جلب جميع مستخدمي الشركة النشطين
-    const q = query(
-      collection(db, 'users'),
-      where('companyId', '==', companyId),
-      where('status', '==', 'active')
-    );
-    const snap = await getDocs(q);
-    const allUsers = snap.docs.map((d) => ({ uid: d.id, ...d.data() } as User));
-
     // السلسلة الهرمية المسموح بها كمديرين
     const allowedRoles: Record<string, string[]> = {
       'agent': ['group_leader', 'supervisor', 'general_supervisor', 'sales_manager'],
@@ -256,15 +247,20 @@ export async function getPotentialManagers(
 
     const targetRoles = allowedRoles[requestedRole] || [];
     
-    // إذا كان هناك مدير مباشر محدد في MANAGER_ROLE_FOR، نفضله أولاً
-    const idealRole = MANAGER_ROLE_FOR[requestedRole];
+    // جلب جميع المستخدمين بالأدوار المسموح بها فقط
+    const constraints: any[] = [
+      where('companyId', '==', companyId),
+      where('status', '==', 'active'),
+    ];
     
-    let filtered = allUsers.filter(u => u.role === idealRole);
-    
-    // إذا لم نجد المدير المثالي، نأخذ أي مدير أعلى متاح في السلسلة
-    if (filtered.length === 0) {
-      filtered = allUsers.filter(u => targetRoles.includes(u.role));
+    // إذا كانت هناك أدوار مسموح بها، أضفها للاستعلام
+    if (targetRoles.length > 0) {
+      constraints.push(where('role', 'in', targetRoles));
     }
+    
+    const q = query(collection(db, 'users'), ...constraints);
+    const snap = await getDocs(q);
+    const filtered = snap.docs.map((d) => ({ uid: d.id, ...d.data() } as User));
 
     return filtered.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || '', 'ar'));
   } catch (err) {
