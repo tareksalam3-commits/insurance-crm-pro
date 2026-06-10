@@ -54,18 +54,25 @@ export function subscribeToClients(
   companyId: string,
   filters?: { agentName?: string; agentId?: string; group?: string; supervisorId?: string }
 ): () => void {
+  // لا نستخدم orderBy مع where لتجنب الحاجة لـ Composite Index
   const constraints: QueryConstraint[] = [
     where('companyId', '==', companyId),
-    orderBy('createdAt', 'desc'),
   ];
-  if (filters?.agentId)      constraints.push(where('agentId', '==', filters.agentId));
+  if (filters?.agentId)        constraints.push(where('agentId', '==', filters.agentId));
   else if (filters?.agentName) constraints.push(where('agentName', '==', filters.agentName));
-  if (filters?.supervisorId) constraints.push(where('supervisorId', '==', filters.supervisorId));
-  if (filters?.group)        constraints.push(where('group', '==', filters.group));
+  if (filters?.supervisorId)   constraints.push(where('supervisorId', '==', filters.supervisorId));
+  if (filters?.group)          constraints.push(where('group', '==', filters.group));
 
   const q = query(collection(db, COL), ...constraints);
   return onSnapshot(q, (snap) => {
-    callback(snap.docs.map((d) => normalizeClient(d.id, d.data())));
+    const clients = snap.docs.map((d) => normalizeClient(d.id, d.data()));
+    // ترتيب على الكلاينت بدل Firestore
+    clients.sort((a, b) => {
+      const ta = a.createdAt?.toMillis?.() ?? 0;
+      const tb = b.createdAt?.toMillis?.() ?? 0;
+      return tb - ta;
+    });
+    callback(clients);
   });
 }
 
@@ -77,15 +84,20 @@ export async function getClients(
 ): Promise<Client[]> {
   const constraints: QueryConstraint[] = [
     where('companyId', '==', companyId),
-    orderBy('createdAt', 'desc'),
   ];
-  if (filters?.agentId)   constraints.push(where('agentId', '==', filters.agentId));
+  if (filters?.agentId)        constraints.push(where('agentId', '==', filters.agentId));
   else if (filters?.agentName) constraints.push(where('agentName', '==', filters.agentName));
-  if (filters?.group)     constraints.push(where('group', '==', filters.group));
+  if (filters?.group)          constraints.push(where('group', '==', filters.group));
 
   const q = query(collection(db, COL), ...constraints);
   const snap = await getDocs(q);
-  return snap.docs.map((d) => normalizeClient(d.id, d.data()));
+  const clients = snap.docs.map((d) => normalizeClient(d.id, d.data()));
+  clients.sort((a, b) => {
+    const ta = a.createdAt?.toMillis?.() ?? 0;
+    const tb = b.createdAt?.toMillis?.() ?? 0;
+    return tb - ta;
+  });
+  return clients;
 }
 
 // ─── Add ──────────────────────────────────────────────────────────────────────

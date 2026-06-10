@@ -55,11 +55,13 @@ export function subscribeToUsers(
   companyId?: string
 ): () => void {
   const constraints = companyId
-    ? [where('companyId', '==', companyId), orderBy('displayName', 'asc')]
-    : [orderBy('displayName', 'asc')];
+    ? [where('companyId', '==', companyId)]
+    : [];
   const q = query(collection(db, 'users'), ...constraints);
   return onSnapshot(q, (snap) => {
-    callback(snap.docs.map((d) => ({ uid: d.id, ...d.data() } as User)));
+    const users = snap.docs.map((d) => ({ uid: d.id, ...d.data() } as User));
+    users.sort((a, b) => (a.displayName ?? '').localeCompare(b.displayName ?? '', 'ar'));
+    callback(users);
   });
 }
 
@@ -166,7 +168,6 @@ export function subscribeToRegistrationRequests(
   // كيري بسيط: status=pending + companyId فقط (index موجود بالفعل)
   const constraints: any[] = [
     where('status', '==', 'pending'),
-    orderBy('createdAt', 'desc'),
   ];
   if (companyId) constraints.push(where('companyId', '==', companyId));
 

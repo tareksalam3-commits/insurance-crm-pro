@@ -22,7 +22,6 @@ export async function getPaymentRecords(
 ): Promise<PaymentRecord[]> {
   const constraints: QueryConstraint[] = [
     where('companyId', '==', companyId),
-    orderBy('collectedAt', 'desc'),
   ];
   if (filters?.clientId)  constraints.push(where('clientId', '==', filters.clientId));
   if (filters?.agentName) constraints.push(where('agentName', '==', filters.agentName));
@@ -31,7 +30,13 @@ export async function getPaymentRecords(
 
   const q = query(collection(db, COL), ...constraints);
   const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as PaymentRecord));
+  const records = snap.docs.map((d) => ({ id: d.id, ...d.data() } as PaymentRecord));
+  records.sort((a, b) => {
+    const ta = (a.collectedAt as any)?.toMillis?.() ?? 0;
+    const tb = (b.collectedAt as any)?.toMillis?.() ?? 0;
+    return tb - ta;
+  });
+  return records;
 }
 
 export function subscribeToPaymentRecords(
@@ -41,7 +46,6 @@ export function subscribeToPaymentRecords(
 ): () => void {
   const constraints: QueryConstraint[] = [
     where('companyId', '==', companyId),
-    orderBy('collectedAt', 'desc'),
   ];
   if (filters?.month)     constraints.push(where('month', '==', filters.month));
   if (filters?.year)      constraints.push(where('year', '==', filters.year));
@@ -49,7 +53,13 @@ export function subscribeToPaymentRecords(
 
   const q = query(collection(db, COL), ...constraints);
   return onSnapshot(q, (snap) => {
-    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PaymentRecord)));
+    const records = snap.docs.map((d) => ({ id: d.id, ...d.data() } as PaymentRecord));
+    records.sort((a, b) => {
+      const ta = (a.collectedAt as any)?.toMillis?.() ?? 0;
+      const tb = (b.collectedAt as any)?.toMillis?.() ?? 0;
+      return tb - ta;
+    });
+    callback(records);
   });
 }
 
