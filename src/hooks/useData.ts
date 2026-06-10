@@ -15,22 +15,19 @@ export function useClients(filters?: { agentName?: string; agentId?: string; gro
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user?.companyId) { setClients([]); setLoading(false); return; }
+    // انتظر حتى يتحمل الـ user من Firestore
+    if (!user) { setLoading(true); return; }
+    if (!user.companyId) { setClients([]); setLoading(false); return; }
     setLoading(true);
 
     const roleFilters: { agentId?: string; agentName?: string; group?: string; supervisorId?: string } = { ...filters };
 
     if (user.role === 'agent') {
-      // الوكيل يشوف عملاؤه فقط
       roleFilters.agentId = user.uid;
     } else if (user.role === 'group_leader') {
-      // رئيس المجموعة يشوف عملاء مجموعته
-      roleFilters.supervisorId = user.uid;
-    } else if (user.role === 'supervisor' || user.role === 'general_supervisor') {
-      // المراقب والمراقب العام يشوفوا عملاء فريقهم (managerId == uid)
       roleFilters.supervisorId = user.uid;
     }
-    // sales_manager و super_admin يشوفوا كل عملاء الشركة بدون فلتر إضافي
+    // supervisor و general_supervisor و sales_manager يشوفوا كل عملاء الشركة بدون فلتر إضافي
 
     const unsub = subscribeToClients(
       (data) => { setClients(data); setLoading(false); },
@@ -38,7 +35,7 @@ export function useClients(filters?: { agentName?: string; agentId?: string; gro
       roleFilters
     );
     return unsub;
-  }, [user?.companyId, user?.role, user?.uid, filters?.agentId, filters?.group]);
+  }, [user?.uid, user?.companyId, user?.role, filters?.agentId, filters?.group]);
 
   async function create(data: Omit<Client, 'id' | 'createdAt'>) {
     if (!user?.companyId) return;

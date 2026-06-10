@@ -208,13 +208,13 @@ export async function approveRegistrationRequest(
     request.managerId || undefined,
   );
 
-  // إضافة في agents
+  // إضافة في agents — companyId مضمون من الطلب
   await addDoc(collection(db, 'agents'), {
     uid:            newUid,
     companyId:      request.companyId,
     name:           request.displayName,
     email:          request.email,
-    group:          request.managerId || '',
+    group:          request.managerName || '',   // اسم المجموعة = اسم المدير
     productionType: request.requestedRole,
     target:         DEFAULT_TARGETS[request.requestedRole] ?? 0,
     supervisorId:   request.managerId || '',

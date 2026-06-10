@@ -48,35 +48,36 @@ service cloud.firestore {
     // ── users ─────────────────────────────────────────────────────────────────
 
     match /users/{uid} {
-      allow read: if isAuth() && (
+      // list: أي مستخدم مسجّل يقدر يعمل query (مهم لصفحة المستخدمين والتقارير)
+      allow list: if isAuth();
+      // get: قراءة document واحد — نتحقق من الهوية
+      allow get: if isAuth() && (
         request.auth.uid == uid ||
         isSuperAdmin() ||
         (isManager() && sameCompany(resource.data.companyId))
       ) ||
-      // قراءة عامة للمديرين فقط — لازم لصفحة طلب الانضمام (غير مسجّل)
-      // فقط إذا كان الـ role من أدوار الإدارة
+      // قراءة عامة للمديرين — لصفحة طلب الانضمام
       (resource.data.role in ['sales_manager', 'general_supervisor', 'supervisor', 'group_leader']);
       allow write: if isAuth() && (
         request.auth.uid == uid ||
         isSuperAdmin() ||
         (isSalesManager() && sameCompany(resource.data.companyId))
       );
-      // السماح للمستخدم الجديد بإنشاء doc خاص بـ uid نفسه (secondary app approval flow)
-      // أو للـ super_admin وسيلز مانجر
       allow create: if isAuth() && (
         request.auth.uid == uid ||
         isSuperAdmin() ||
-        isSalesManager()
+        isManager()
       );
     }
 
     // ── registrationRequests ─────────────────────────────────────────────────
 
     match /registrationRequests/{reqId} {
-      allow read: if isAuth() && (
+      // list: أي مستخدم مسجّل — الفلترة تتم في الكود
+      allow list: if isAuth();
+      allow get: if isAuth() && (
         isSuperAdmin() ||
         (isSalesManager() && sameCompany(resource.data.companyId)) ||
-        // المراقب العام والمراقب يقروا الطلبات الموجهة إليهم فقط
         (
           (userRole() == 'general_supervisor' || userRole() == 'supervisor') &&
           sameCompany(resource.data.companyId) &&
