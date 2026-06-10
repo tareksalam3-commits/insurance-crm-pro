@@ -21,10 +21,16 @@ export function useClients(filters?: { agentName?: string; agentId?: string; gro
     const roleFilters: { agentId?: string; agentName?: string; group?: string; supervisorId?: string } = { ...filters };
 
     if (user.role === 'agent') {
+      // الوكيل يشوف عملاؤه فقط
       roleFilters.agentId = user.uid;
     } else if (user.role === 'group_leader') {
+      // رئيس المجموعة يشوف عملاء مجموعته
+      roleFilters.supervisorId = user.uid;
+    } else if (user.role === 'supervisor' || user.role === 'general_supervisor') {
+      // المراقب والمراقب العام يشوفوا عملاء فريقهم (managerId == uid)
       roleFilters.supervisorId = user.uid;
     }
+    // sales_manager و super_admin يشوفوا كل عملاء الشركة بدون فلتر إضافي
 
     const unsub = subscribeToClients(
       (data) => { setClients(data); setLoading(false); },
