@@ -107,7 +107,6 @@ export async function updateUserProfile(
 
 export async function deleteUserProfile(uid: string): Promise<void> {
   await deleteDoc(doc(db, 'users', uid));
-  // ⚠️ حساب Firebase Auth لا يُحذف هنا — يتطلب Admin SDK
 }
 
 // ─── Registration Requests ────────────────────────────────────────────────────
@@ -121,7 +120,6 @@ export async function submitRegistrationRequest(
     createdAt: serverTimestamp(),
   });
 
-  // إشعار للمدير المباشر فقط
   if (data.managerId) {
     await addDoc(collection(db, 'notifications'), {
       type:          'registration_request',
@@ -134,7 +132,6 @@ export async function submitRegistrationRequest(
       createdAt:     serverTimestamp(),
     });
   } else {
-    // لو مفيش مدير مباشر — إشعار لكل sales_manager في الشركة
     const managersSnap = await getDocs(query(
       collection(db, 'users'),
       where('companyId', '==', data.companyId),
@@ -158,14 +155,11 @@ export async function submitRegistrationRequest(
   return ref.id;
 }
 
-// FIX: تبسيط الكيري — نفلتر بـ companyId فقط على Firestore
-// وبـ managerId على الكلاينت لتجنب الحاجة لـ composite index
 export function subscribeToRegistrationRequests(
   callback: (requests: RegistrationRequest[]) => void,
   companyId?: string,
   managerId?: string,
 ): () => void {
-  // كيري بسيط: status=pending + companyId فقط (index موجود بالفعل)
   const constraints: any[] = [
     where('status', '==', 'pending'),
   ];
@@ -175,7 +169,6 @@ export function subscribeToRegistrationRequests(
 
   return onSnapshot(q, (snap) => {
     let data = snap.docs.map((d) => ({ id: d.id, ...d.data() } as RegistrationRequest));
-    // فلترة managerId على الكلاينت (بدل Firestore) لتجنب composite index
     if (managerId) {
       data = data.filter((r) => r.managerId === managerId);
     }
@@ -183,20 +176,9 @@ export function subscribeToRegistrationRequests(
   });
 }
 
-/**
- * الموافقة على طلب التسجيل:
- * 1. ينشئ حساب Firebase Auth بكلمة مرور مؤقتة عشوائية (لا تُحفظ)
- * 2. يضيف doc في users بـ status: 'active'
- * 3. يضيف record في agents
- * 4. يحدّث حالة الطلب إلى approved
- * 5. يبعت إيميل reset password — المستخدم يضغط اللينك ويحط كلمة سر جديدة
- *
- * يمكن أن يوافق: super_admin، sales_manager، general_supervisor، supervisor
- */
 export async function approveRegistrationRequest(
   request: RegistrationRequest
 ): Promise<{ newUid: string }> {
-  // كلمة مرور مؤقتة عشوائية — لا تُحفظ في أي مكان
   const tempPassword = `Tmp_${Math.random().toString(36).slice(2, 10)}!`;
 
   const newUid = await createUserWithSecondaryApp(
@@ -208,39 +190,33 @@ export async function approveRegistrationRequest(
     request.managerId || undefined,
   );
 
-  // إضافة في agents إذا كان الدور وكيل (أو أي دور إنتاجي آخر)
-  // ملاحظة: يتم إضافة السجل لجميع الأدوار لضمان ظهورهم في التقارير والإنتاج
   await addDoc(collection(db, 'agents'), {
     uid:            newUid,
     companyId:      request.companyId,
     name:           request.displayName,
     email:          request.email,
-    group:          request.managerName || '',  // اسم المجموعة
+    group:          request.managerName || '',
     productionType: request.requestedRole,
     target:         DEFAULT_TARGETS[request.requestedRole] ?? 0,
-    supervisorId:   request.managerId || '',    // UID المدير المباشر
-    managerName:    request.managerName || '',  // اسم المدير المباشر
+    supervisorId:   request.managerId || '',
+    managerName:    request.managerName || '',
     status:         'active',
     createdAt:      serverTimestamp(),
   });
 
-  // تحديث حالة الطلب
   await updateDoc(doc(db, 'registrationRequests', request.id), {
     status:      'approved',
     approvedAt:  serverTimestamp(),
     approvedUid: newUid,
   });
 
-  // إرسال إيميل reset password من Firebase مباشرة
-  // اللينك يوجه المستخدم على صفحة /reset-password في التطبيق
   try {
     await sendPasswordResetEmail(auth, request.email, {
       url: `${window.location.origin}/reset-password`,
       handleCodeInApp: false,
     });
   } catch (emailError) {
-    // تسجيل التحذير لكن لا نوقف العملية
-    // يمكن للمستخدم استخدام نسيت كلمة المرور لاحقاً
+    console.error('Email error:', emailError);
   }
 
   return { newUid };
@@ -253,23 +229,46 @@ export async function rejectRegistrationRequest(requestId: string): Promise<void
   });
 }
 
-// ─── Potential Managers ───────────────────────────────────────────────────────
+// ─── Potential Managers (إصلاح نهائي وآمن) ─────────────────────────────────────
 
 export async function getPotentialManagers(
   companyId: string,
   requestedRole: UserRole
 ): Promise<User[]> {
-  const managerRole: UserRole | undefined = MANAGER_ROLE_FOR[requestedRole];
-  if (!managerRole) return [];
+  try {
+    // جلب جميع مستخدمي الشركة النشطين
+    const q = query(
+      collection(db, 'users'),
+      where('companyId', '==', companyId),
+      where('status', '==', 'active')
+    );
+    const snap = await getDocs(q);
+    const allUsers = snap.docs.map((d) => ({ uid: d.id, ...d.data() } as User));
 
-  const q = query(
-    collection(db, 'users'),
-    where('companyId', '==', companyId),
-    where('role', '==', managerRole),
-  );
-  const snap = await getDocs(q);
+    // السلسلة الهرمية المسموح بها كمديرين
+    const allowedRoles: Record<string, string[]> = {
+      'agent': ['group_leader', 'supervisor', 'general_supervisor', 'sales_manager'],
+      'group_leader': ['supervisor', 'general_supervisor', 'sales_manager'],
+      'supervisor': ['general_supervisor', 'sales_manager'],
+      'general_supervisor': ['sales_manager'],
+      'sales_manager': [],
+    };
 
-  return snap.docs
-    .map((d) => ({ uid: d.id, ...d.data() } as User))
-    .filter((u) => u.status === 'active');
+    const targetRoles = allowedRoles[requestedRole] || [];
+    
+    // إذا كان هناك مدير مباشر محدد في MANAGER_ROLE_FOR، نفضله أولاً
+    const idealRole = MANAGER_ROLE_FOR[requestedRole];
+    
+    let filtered = allUsers.filter(u => u.role === idealRole);
+    
+    // إذا لم نجد المدير المثالي، نأخذ أي مدير أعلى متاح في السلسلة
+    if (filtered.length === 0) {
+      filtered = allUsers.filter(u => targetRoles.includes(u.role));
+    }
+
+    return filtered.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || '', 'ar'));
+  } catch (err) {
+    console.error('[getPotentialManagers] error:', err);
+    return [];
+  }
 }
