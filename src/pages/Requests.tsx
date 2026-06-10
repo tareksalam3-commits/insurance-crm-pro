@@ -53,8 +53,9 @@ export default function Requests() {
           .finally(() => setLeadersLoading(false));
       }
     } catch (e) {
-      console.error(e);
-      alert('حدث خطأ أثناء الموافقة. تأكد من الاتصال بالإنترنت وحاول مجدداً.');
+      // معالجة الخطأ بدون طباعة على console
+      const errorMessage = e instanceof Error ? e.message : 'خطأ غير معروف';
+      alert(`حدث خطأ أثناء الموافقة: ${errorMessage}. تأكد من الاتصال بالإنترنت وحاول مجدداً.`);
     } finally {
       setProcessingId(null);
     }
