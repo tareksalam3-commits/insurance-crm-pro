@@ -7,7 +7,7 @@ import { Shield, Eye, EyeOff, Loader2, CheckCircle2 } from 'lucide-react';
 import type { Company, User, UserRole } from '../types';
 import { ROLE_LABELS } from '../types';
 
-// الأدوار التي يُسمح لها بطلب الانضمام (super_admin لا يُطلب عبر الصفحة)
+// الأدوار التي يُسمح لها بطلب الانضمام
 const JOINABLE_ROLES: UserRole[] = [
   'sales_manager',
   'general_supervisor',
@@ -15,9 +15,6 @@ const JOINABLE_ROLES: UserRole[] = [
   'group_leader',
   'agent',
 ];
-
-// الأدوار التي لا تحتاج إلى مدير مباشر (sales_manager يتبع super_admin مباشرة)
-const ROLES_WITHOUT_MANAGER: UserRole[] = ['sales_manager', 'general_supervisor'];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -61,17 +58,25 @@ export default function Login() {
   const [loginLoading, setLoginLoading] = useState(false);
 
   // ── Join state ────────────────────────────────────────────────────────────
-  const [joinName,       setJoinName]       = useState('');
-  const [joinEmail,      setJoinEmail]      = useState('');
-  const [joinCompanyId,  setJoinCompanyId]  = useState('');
-  const [joinRole,       setJoinRole]       = useState<UserRole>('agent');
-  const [joinManagerId,  setJoinManagerId]  = useState('');       // المراقب (supervisor) أو المراقب العام (general_supervisor)
-  const [joinSupervisorId, setJoinSupervisorId] = useState('');   // المراقب عند اختيار general_supervisor كـ manager
-  const [companies,      setCompanies]      = useState<Company[]>([]);
-  const [managers,       setManagers]       = useState<User[]>([]);   // المراقب العام أو المراقب حسب الدور
-  const [supervisors,    setSupervisors]    = useState<User[]>([]);   // المراقبون التابعون للمراقب العام
-  const [managersLoading, setManagersLoading] = useState(false);
-  const [supervisorsLoading, setSupervisorsLoading] = useState(false);
+  const [joinName,              setJoinName]              = useState('');
+  const [joinEmail,             setJoinEmail]             = useState('');
+  const [joinCompanyId,         setJoinCompanyId]         = useState('');
+  const [joinRole,              setJoinRole]              = useState<UserRole>('agent');
+  
+  // السلسلة الهرمية الكاملة
+  const [joinGeneralSupervisorId, setJoinGeneralSupervisorId] = useState('');  // المراقب العام
+  const [joinSupervisorId,        setJoinSupervisorId]        = useState('');  // المراقب
+  const [joinGroupLeaderId,       setJoinGroupLeaderId]       = useState('');  // رئيس المجموعة
+  
+  const [companies,              setCompanies]              = useState<Company[]>([]);
+  const [generalSupervisors,     setGeneralSupervisors]     = useState<User[]>([]);
+  const [supervisors,            setSupervisors]            = useState<User[]>([]);
+  const [groupLeaders,           setGroupLeaders]           = useState<User[]>([]);
+  
+  const [generalSupervisorsLoading, setGeneralSupervisorsLoading] = useState(false);
+  const [supervisorsLoading,        setSupervisorsLoading]        = useState(false);
+  const [groupLeadersLoading,       setGroupLeadersLoading]       = useState(false);
+  
   const [joinSubmitted,  setJoinSubmitted]  = useState(false);
   const [joinError,      setJoinError]      = useState('');
   const [joinLoading,    setJoinLoading]    = useState(false);
@@ -83,31 +88,64 @@ export default function Login() {
       .catch(() => setCompanies([]));
   }, []);
 
-  // ── Load managers (general_supervisor or supervisor) when company/role changes ──
+  // ── Load general supervisors when company changes ──────────────────────────
   useEffect(() => {
-    setJoinManagerId('');
-    setManagers([]);
+    setJoinGeneralSupervisorId('');
+    setGeneralSupervisors([]);
     setJoinSupervisorId('');
     setSupervisors([]);
+    setJoinGroupLeaderId('');
+    setGroupLeaders([]);
 
-    // الأدوار التي لا تحتاج مدير مباشر — نوقف الـ fetch
-    if (!joinCompanyId || !joinRole || ROLES_WITHOUT_MANAGER.includes(joinRole)) return;
+    if (!joinCompanyId) return;
 
-    setManagersLoading(true);
-    getPotentialManagers(joinCompanyId, joinRole)
-      .then((mgrs) => setManagers(mgrs))
-      .catch(() => setManagers([]))
-      .finally(() => setManagersLoading(false));
-  }, [joinCompanyId, joinRole]);
+    // جيب المراقبين العاميين للشركة
+    setGeneralSupervisorsLoading(true);
+    getPotentialManagers(joinCompanyId, 'general_supervisor')
+      .then((mgrs) => setGeneralSupervisors(mgrs))
+      .catch(() => setGeneralSupervisors([]))
+      .finally(() => setGeneralSupervisorsLoading(false));
+  }, [joinCompanyId]);
 
-  // ── عند اختيار مراقب عام، جيب المراقبين التابعين له (للمستخدم اللي role=supervisor) ──
+  // ── Load supervisors when general supervisor changes ───────────────────────
   useEffect(() => {
     setJoinSupervisorId('');
     setSupervisors([]);
-    if (!joinManagerId || joinRole !== 'supervisor') return;
-    // المراقب يتبع مراقب عام — جيب المراقبين العاميين للشركة (نعرضهم كاختيار)
-    // هنا نعرض المراقب العام المختار فعلاً — مش محتاجين fetch إضافي
-  }, [joinManagerId, joinRole]);
+    setJoinGroupLeaderId('');
+    setGroupLeaders([]);
+
+    if (!joinGeneralSupervisorId || !joinCompanyId) return;
+
+    // جيب المراقبين التابعين للمراقب العام
+    setSupervisorsLoading(true);
+    getPotentialManagers(joinCompanyId, 'supervisor')
+      .then((mgrs) => {
+        // فلتر المراقبين الذين يتبعون للمراقب العام المختار
+        const filtered = mgrs.filter((m) => m.managerId === joinGeneralSupervisorId);
+        setSupervisors(filtered);
+      })
+      .catch(() => setSupervisors([]))
+      .finally(() => setSupervisorsLoading(false));
+  }, [joinGeneralSupervisorId, joinCompanyId]);
+
+  // ── Load group leaders when supervisor changes ─────────────────────────────
+  useEffect(() => {
+    setJoinGroupLeaderId('');
+    setGroupLeaders([]);
+
+    if (!joinSupervisorId || !joinCompanyId) return;
+
+    // جيب رؤساء المجموعات التابعين للمراقب المختار
+    setGroupLeadersLoading(true);
+    getPotentialManagers(joinCompanyId, 'group_leader')
+      .then((mgrs) => {
+        // فلتر رؤساء المجموعات الذين يتبعون للمراقب المختار
+        const filtered = mgrs.filter((m) => m.managerId === joinSupervisorId);
+        setGroupLeaders(filtered);
+      })
+      .catch(() => setGroupLeaders([]))
+      .finally(() => setGroupLeadersLoading(false));
+  }, [joinSupervisorId, joinCompanyId]);
 
   // ── Redirect if already logged in ─────────────────────────────────────────
   if (loading) {
@@ -144,21 +182,33 @@ export default function Login() {
     if (!joinCompanyId)        { setJoinError('اختر الشركة'); return; }
     if (!joinRole)             { setJoinError('اختر الوظيفة'); return; }
 
-    // فحص المدير المباشر للأدوار التي تحتاجه
-    const needsManager = !ROLES_WITHOUT_MANAGER.includes(joinRole);
-    if (needsManager && managers.length > 0 && !joinManagerId) {
-      const label =
-        joinRole === 'group_leader' || joinRole === 'agent'
-          ? 'اختر المراقب'
-          : 'اختر المراقب العام';
-      setJoinError(label);
-      return;
+    // فحص السلسلة الهرمية حسب الدور
+    if (joinRole === 'agent' || joinRole === 'group_leader' || joinRole === 'supervisor') {
+      if (!joinGeneralSupervisorId) { setJoinError('اختر المراقب العام'); return; }
+      if (!joinSupervisorId)        { setJoinError('اختر المراقب'); return; }
+      if (joinRole === 'agent' && !joinGroupLeaderId) { setJoinError('اختر رئيس المجموعة'); return; }
     }
 
     setJoinLoading(true);
     try {
       const company = companies.find((c) => c.id === joinCompanyId);
-      const manager = managers.find((m) => m.uid === joinManagerId);
+      let managerId = '';
+      let managerName = '';
+
+      // تحديد المدير المباشر حسب الدور
+      if (joinRole === 'agent') {
+        managerId = joinGroupLeaderId;
+        const leader = groupLeaders.find((l) => l.uid === joinGroupLeaderId);
+        managerName = leader?.displayName ?? '';
+      } else if (joinRole === 'group_leader') {
+        managerId = joinSupervisorId;
+        const supervisor = supervisors.find((s) => s.uid === joinSupervisorId);
+        managerName = supervisor?.displayName ?? '';
+      } else if (joinRole === 'supervisor') {
+        managerId = joinGeneralSupervisorId;
+        const generalSupervisor = generalSupervisors.find((g) => g.uid === joinGeneralSupervisorId);
+        managerName = generalSupervisor?.displayName ?? '';
+      }
 
       await submitRegistrationRequest({
         displayName:   joinName.trim(),
@@ -166,8 +216,8 @@ export default function Login() {
         companyId:     joinCompanyId,
         companyName:   company?.name ?? '',
         requestedRole: joinRole,
-        managerId:     joinManagerId ?? '',
-        managerName:   manager?.displayName ?? '',
+        managerId:     managerId,
+        managerName:   managerName,
       });
       setJoinSubmitted(true);
     } catch {
@@ -296,7 +346,7 @@ export default function Login() {
                 </div>
               ) : (
                 /* ── Join Form ── */
-                <form onSubmit={handleJoin} className="space-y-4">
+                <form onSubmit={handleJoin} className="space-y-4 max-h-96 overflow-y-auto">
 
                   {joinError && (
                     <div className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm">
@@ -378,49 +428,98 @@ export default function Login() {
                     </select>
                   </div>
 
-                  {/* 6. المراقب العام / المراقب — يظهر حسب الدور المطلوب */}
-                  {!ROLES_WITHOUT_MANAGER.includes(joinRole) && joinCompanyId && (() => {
-                    // تحديد label المدير المناسب للدور
-                    const managerLabel =
-                      joinRole === 'supervisor'
-                        ? 'المراقب العام'
-                        : joinRole === 'group_leader'
-                        ? 'المراقب'
-                        : joinRole === 'agent'
-                        ? 'المراقب'
-                        : 'المدير المباشر';
-                    return (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                          {managerLabel}
-                          {managers.length > 0 && <span className="text-red-500"> *</span>}
-                        </label>
-                        {managersLoading ? (
-                          <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-400">
-                            <Loader2 size={14} className="animate-spin" />
-                            جاري البحث...
-                          </div>
-                        ) : managers.length === 0 ? (
-                          <div className="px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-700">
-                            لا يوجد {managerLabel} متاح في الشركة المختارة.
-                            سيتم تعيينه لاحقاً بعد الموافقة على طلبك.
-                          </div>
-                        ) : (
-                          <select
-                            value={joinManagerId}
-                            onChange={(e) => setJoinManagerId(e.target.value)}
-                            required
-                            className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="">— اختر {managerLabel} —</option>
-                            {managers.map((m) => (
-                              <option key={m.uid} value={m.uid}>{m.displayName}</option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
-                    );
-                  })()}
+                  {/* 6. المراقب العام */}
+                  {joinCompanyId && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                        المراقب العام <span className="text-red-500">*</span>
+                      </label>
+                      {generalSupervisorsLoading ? (
+                        <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-400">
+                          <Loader2 size={14} className="animate-spin" />
+                          جاري البحث...
+                        </div>
+                      ) : generalSupervisors.length === 0 ? (
+                        <div className="px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-700">
+                          لا يوجد مراقب عام متاح في الشركة المختارة.
+                        </div>
+                      ) : (
+                        <select
+                          value={joinGeneralSupervisorId}
+                          onChange={(e) => setJoinGeneralSupervisorId(e.target.value)}
+                          required
+                          className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">— اختر المراقب العام —</option>
+                          {generalSupervisors.map((g) => (
+                            <option key={g.uid} value={g.uid}>{g.displayName}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 7. المراقب */}
+                  {joinGeneralSupervisorId && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                        المراقب <span className="text-red-500">*</span>
+                      </label>
+                      {supervisorsLoading ? (
+                        <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-400">
+                          <Loader2 size={14} className="animate-spin" />
+                          جاري البحث...
+                        </div>
+                      ) : supervisors.length === 0 ? (
+                        <div className="px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-700">
+                          لا يوجد مراقب متاح تحت هذا المراقب العام.
+                        </div>
+                      ) : (
+                        <select
+                          value={joinSupervisorId}
+                          onChange={(e) => setJoinSupervisorId(e.target.value)}
+                          required
+                          className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">— اختر المراقب —</option>
+                          {supervisors.map((s) => (
+                            <option key={s.uid} value={s.uid}>{s.displayName}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 8. رئيس المجموعة (للوكلاء فقط) */}
+                  {joinSupervisorId && joinRole === 'agent' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                        رئيس المجموعة <span className="text-red-500">*</span>
+                      </label>
+                      {groupLeadersLoading ? (
+                        <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-400">
+                          <Loader2 size={14} className="animate-spin" />
+                          جاري البحث...
+                        </div>
+                      ) : groupLeaders.length === 0 ? (
+                        <div className="px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-700">
+                          لا يوجد رئيس مجموعة متاح تحت هذا المراقب.
+                        </div>
+                      ) : (
+                        <select
+                          value={joinGroupLeaderId}
+                          onChange={(e) => setJoinGroupLeaderId(e.target.value)}
+                          required
+                          className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">— اختر رئيس المجموعة —</option>
+                          {groupLeaders.map((l) => (
+                            <option key={l.uid} value={l.uid}>{l.displayName}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  )}
 
                   {/* Submit */}
                   <button
