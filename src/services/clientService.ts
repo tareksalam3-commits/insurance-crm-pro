@@ -25,10 +25,10 @@ function normalizeClient(id: string, data: Record<string, any>): Client {
   return {
     id,
     companyId:           data.companyId          ?? '',
-    // FIX #4: agentId مضاف — يُستخدم للفلتر بدل الاسم
     agentId:             data.agentId            ?? '',
     group:               data.group              ?? '',
     agentName:           data.agentName          ?? '',
+    supervisorId:        data.supervisorId       ?? '',  // uid المراقب — للفلترة
     productionType,
     clientName:          data.clientName         ?? '',
     startMonth:          data.startMonth         ?? 'يناير',

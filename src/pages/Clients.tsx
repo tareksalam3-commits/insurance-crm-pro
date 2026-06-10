@@ -15,9 +15,9 @@ const STATUS_COLORS: Record<Client['status'], string> = {
   'ملغي':  'bg-red-100 text-red-700',
 };
 
-function emptyForm(agentName = '', agentId = '', group = '', productionType: ProductionType = 'agent') {
+function emptyForm(agentName = '', agentId = '', group = '', productionType: ProductionType = 'agent', supervisorId = '') {
   return {
-    agentName, agentId, group, productionType,
+    agentName, agentId, group, productionType, supervisorId,
     clientName: '', startMonth: 'يناير', startYear: new Date().getFullYear(),
     annualTarget: 0, paymentMethod: 'شهري' as PaymentMethod, paymentAmount: 0,
     lastCollectionMonth: '', phone: '', policyNumber: '',
@@ -64,8 +64,8 @@ export default function Clients() {
   function openAdd() {
     setEditId(null);
     if (user?.role === 'agent') {
-      // FIX #4: agentId مضاف للفورم
-      setForm(emptyForm(user.displayName, user.uid, agents.find((a) => a.name === user.displayName)?.group ?? '', 'agent'));
+      const myAgent = agents.find((a) => a.uid === user.uid || a.name === user.displayName);
+      setForm(emptyForm(user.displayName, user.uid, myAgent?.group ?? '', 'agent', myAgent?.supervisorId ?? ''));
     } else {
       setForm(emptyForm());
     }
@@ -93,10 +93,11 @@ export default function Clients() {
     if (!agent) return;
     setForm((f) => ({
       ...f,
-      agentId:        agent.id,
+      agentId:        agent.uid || agent.id,  // uid للفلترة، id للـ document
       agentName:      agent.name,
       group:          agent.group,
       productionType: agent.productionType,
+      supervisorId:   agent.supervisorId ?? '',  // نحفظ المراقب للفلترة لاحقاً
     }));
   }
 

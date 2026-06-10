@@ -77,7 +77,7 @@ export default function Collections() {
         amount,
         month:      selectedMonth,
         year:       selectedYear,
-        collectedBy: user.displayName,
+        collectedBy: user.displayName ?? user.email ?? user.uid,
       });
     } finally {
       setCollectingIds((prev) => {

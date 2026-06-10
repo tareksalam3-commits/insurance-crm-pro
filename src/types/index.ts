@@ -109,12 +109,15 @@ export interface RegistrationRequest {
 
 export interface Agent {
   id: string;
+  uid: string;            // Firebase Auth UID — للربط مع users وفلترة العملاء
   companyId: string;
   name: string;
-  group: string;
+  email?: string;
+  group: string;          // اسم المجموعة / المدير المباشر
   productionType: ProductionType;
   target: number;
-  supervisorId?: string;
+  supervisorId?: string;  // uid المدير المباشر
+  managerName?: string;   // اسم المدير المباشر
   status: 'active' | 'inactive' | 'suspended';
   createdAt?: any;
 }
@@ -124,10 +127,10 @@ export interface Agent {
 export interface Client {
   id: string;
   companyId: string;
-  // FIX #4: agentId مضاف للربط الصحيح بدل الاسم فقط
   agentId: string;
   agentName: string;
   group: string;
+  supervisorId?: string;   // uid المراقب المباشر — لفلترة عملاء المراقب
   productionType: ProductionType;
   clientName: string;
   startMonth: string;

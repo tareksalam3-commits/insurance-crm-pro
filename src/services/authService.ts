@@ -208,16 +208,17 @@ export async function approveRegistrationRequest(
     request.managerId || undefined,
   );
 
-  // إضافة في agents — companyId مضمون من الطلب
+  // إضافة في agents — كل البيانات المطلوبة للفلترة
   await addDoc(collection(db, 'agents'), {
-    uid:            newUid,
+    uid:            newUid,          // uid الـ Firebase Auth — مهم للفلترة
     companyId:      request.companyId,
     name:           request.displayName,
     email:          request.email,
-    group:          request.managerName || '',   // اسم المجموعة = اسم المدير
+    group:          request.managerName || '',  // اسم المجموعة = اسم المدير المباشر
     productionType: request.requestedRole,
     target:         DEFAULT_TARGETS[request.requestedRole] ?? 0,
-    supervisorId:   request.managerId || '',
+    supervisorId:   request.managerId || '',   // uid المدير المباشر — للفلترة
+    managerName:    request.managerName || '',  // اسم المدير المباشر
     status:         'active',
     createdAt:      serverTimestamp(),
   });

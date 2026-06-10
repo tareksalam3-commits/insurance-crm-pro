@@ -7,6 +7,23 @@ import type { Agent } from '../types';
 
 const COL = 'agents';
 
+function normalizeAgent(id: string, data: Record<string, any>): Agent {
+  return {
+    id,
+    uid:           data.uid           ?? id,   // fallback للـ id لو uid مش موجود
+    companyId:     data.companyId     ?? '',
+    name:          data.name          ?? '',
+    email:         data.email,
+    group:         data.group         ?? '',
+    productionType: data.productionType ?? 'agent',
+    target:        data.target        ?? 0,
+    supervisorId:  data.supervisorId  ?? '',
+    managerName:   data.managerName   ?? '',
+    status:        data.status        ?? 'active',
+    createdAt:     data.createdAt,
+  };
+}
+
 export async function getAgents(companyId: string, filters?: { group?: string }): Promise<Agent[]> {
   const constraints: QueryConstraint[] = [
     where('companyId', '==', companyId),
@@ -14,7 +31,7 @@ export async function getAgents(companyId: string, filters?: { group?: string })
   if (filters?.group) constraints.push(where('group', '==', filters.group));
   const q = query(collection(db, COL), ...constraints);
   const snap = await getDocs(q);
-  const agents = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Agent));
+  const agents = snap.docs.map((d) => normalizeAgent(d.id, d.data()));
   return agents.sort((a, b) => a.name.localeCompare(b.name, 'ar'));
 }
 
@@ -29,7 +46,7 @@ export function subscribeToAgents(
   if (filters?.group) constraints.push(where('group', '==', filters.group));
   const q = query(collection(db, COL), ...constraints);
   return onSnapshot(q, (snap) => {
-    const agents = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Agent));
+    const agents = snap.docs.map((d) => normalizeAgent(d.id, d.data()));
     callback(agents.sort((a, b) => a.name.localeCompare(b.name, 'ar')));
   });
 }
