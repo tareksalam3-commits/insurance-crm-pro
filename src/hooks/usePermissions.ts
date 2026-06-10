@@ -127,7 +127,7 @@ export function getPermissions(role: UserRole): Permissions {
         canManageCompanies:         false,
         canViewUsers:               true,
         canManageUsers:             false,
-        userScope:                  'company',    // سيتم الفلترة برمجياً في الهوك
+        userScope:                  'none',       // يشوف المراقبين التابعين ليه فقط
         canAddAgent:                true,
         canEditAgent:               true,
         canDeleteAgent:             false,
@@ -152,7 +152,7 @@ export function getPermissions(role: UserRole): Permissions {
         canManageCompanies:         false,
         canViewUsers:               true,
         canManageUsers:             false,
-        userScope:                  'company',    // سيتم الفلترة برمجياً في الهوك
+        userScope:                  'none',       // رؤساء المجموعات التابعين ليه بس
         canAddAgent:                false,
         canEditAgent:               false,
         canDeleteAgent:             false,
@@ -177,7 +177,7 @@ export function getPermissions(role: UserRole): Permissions {
         canManageCompanies:         false,
         canViewUsers:               true,
         canManageUsers:             false,
-        userScope:                  'company',    // سيتم الفلترة برمجياً في الهوك
+        userScope:                  'none',       // إيجنتس مجموعته بس
         canAddAgent:                false,
         canEditAgent:               false,
         canDeleteAgent:             false,

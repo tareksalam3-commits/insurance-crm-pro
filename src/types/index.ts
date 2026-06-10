@@ -58,7 +58,6 @@ export const MONTH_LIST = [
   'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر',
 ] as const;
 
-// FIX #9: YEAR_LIST ديناميكي بدل hard-coded حتى 2030
 const currentYear = new Date().getFullYear();
 export const YEAR_LIST = Array.from(
   { length: 10 },
@@ -95,12 +94,18 @@ export interface RegistrationRequest {
   id: string;
   displayName: string;
   email: string;
-  // FIX #1: كلمة المرور محذوفة من النوع — لا تُخزَّن في Firestore أبداً
+  phone?: string;
+  // كلمة المرور لا تُخزَّن في Firestore — تُستخدم لحظة إنشاء الحساب فقط
   companyId: string;
   companyName: string;
   requestedRole: UserRole;
+  // يُعبأ من المراقب العام عند الموافقة — الوكيل لا يختار هذه الحقول
   managerId: string;
   managerName: string;
+  supervisorId?: string;
+  supervisorName?: string;
+  groupLeaderId?: string;
+  groupLeaderName?: string;
   status: 'pending' | 'approved' | 'rejected';
   createdAt?: any;
 }
@@ -109,15 +114,16 @@ export interface RegistrationRequest {
 
 export interface Agent {
   id: string;
-  uid: string;            // Firebase Auth UID — للربط مع users وفلترة العملاء
+  uid: string;
   companyId: string;
   name: string;
   email?: string;
-  group: string;          // اسم المجموعة / المدير المباشر
+  phone?: string;
+  group: string;
   productionType: ProductionType;
   target: number;
-  supervisorId?: string;  // uid المدير المباشر
-  managerName?: string;   // اسم المدير المباشر
+  supervisorId?: string;
+  managerName?: string;
   status: 'active' | 'inactive' | 'suspended';
   createdAt?: any;
 }
@@ -130,7 +136,7 @@ export interface Client {
   agentId: string;
   agentName: string;
   group: string;
-  supervisorId?: string;   // uid المراقب المباشر — لفلترة عملاء المراقب
+  supervisorId?: string;
   productionType: ProductionType;
   clientName: string;
   startMonth: string;
@@ -223,8 +229,6 @@ export interface MonthlyReportData {
   leadershipProduction: LeadershipProduction[];
 }
 
-// ─── Collection Notification ──────────────────────────────────────────────────
-
 export interface CollectionNotification {
   clientId: string;
   clientName: string;
@@ -235,8 +239,6 @@ export interface CollectionNotification {
   dueMonth: string;
   dueYear: number;
 }
-
-// ─── Client Edit Notification ─────────────────────────────────────────────────
 
 export interface ClientEditNotification {
   id: string;

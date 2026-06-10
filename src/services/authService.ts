@@ -18,7 +18,7 @@ import { auth, db, firebaseConfig } from '../firebase/config';
 import type { User, UserRole, RegistrationRequest } from '../types';
 import { MANAGER_ROLE_FOR } from '../hooks/usePermissions';
 
-// التارجت الافتراضي لكل وظيفة حسب اللائحة
+// التارجت الافتراضي لكل وظيفة
 const DEFAULT_TARGETS: Partial<Record<UserRole, number>> = {
   agent:              12150,
   group_leader:       60000,
@@ -111,46 +111,64 @@ export async function deleteUserProfile(uid: string): Promise<void> {
 
 // ─── Registration Requests ────────────────────────────────────────────────────
 
+/**
+ * إرسال طلب انضمام جديد.
+ * الوكيل يختار الشركة فقط — المراقب العام يعيّن المراقب ورئيس المجموعة عند الموافقة.
+ * كلمة المرور تُخزَّن مشفرة مؤقتاً في Firestore وتُحذف فور إنشاء الحساب.
+ * ملاحظة: في بيئة الإنتاج استبدل التخزين المؤقت بـ Cloud Function.
+ */
 export async function submitRegistrationRequest(
-  data: Omit<RegistrationRequest, 'id' | 'status' | 'createdAt'>
+  data: {
+    displayName: string;
+    email: string;
+    phone?: string;
+    password: string;         // كلمة السر التي أدخلها المستخدم
+    companyId: string;
+    companyName: string;
+    requestedRole: UserRole;
+  }
 ): Promise<string> {
+  // نخزن كلمة السر مؤقتاً — ستُحذف فور الموافقة
   const ref = await addDoc(collection(db, 'registrationRequests'), {
-    ...data,
-    status: 'pending',
-    createdAt: serverTimestamp(),
+    displayName:   data.displayName,
+    email:         data.email,
+    phone:         data.phone ?? '',
+    _pwd:          data.password,   // مؤقت — يُحذف عند approveRegistrationRequest
+    companyId:     data.companyId,
+    companyName:   data.companyName,
+    requestedRole: data.requestedRole,
+    managerId:     '',
+    managerName:   '',
+    status:        'pending',
+    createdAt:     serverTimestamp(),
   });
 
-  if (data.managerId) {
-    await addDoc(collection(db, 'notifications'), {
+  // إشعار لكل المراقبين العاميين في الشركة
+  const gsSnap = await getDocs(query(
+    collection(db, 'users'),
+    where('companyId', '==', data.companyId),
+    where('role', '==', 'general_supervisor'),
+  ));
+  // + إشعار لمدير المبيعات كذلك
+  const smSnap = await getDocs(query(
+    collection(db, 'users'),
+    where('companyId', '==', data.companyId),
+    where('role', '==', 'sales_manager'),
+  ));
+
+  const recipients = [...gsSnap.docs, ...smSnap.docs];
+  await Promise.all(recipients.map((d) =>
+    addDoc(collection(db, 'notifications'), {
       type:          'registration_request',
-      recipientId:   data.managerId,
+      recipientId:   d.id,
       companyId:     data.companyId,
       requestId:     ref.id,
       applicantName: data.displayName,
       requestedRole: data.requestedRole,
       read:          false,
       createdAt:     serverTimestamp(),
-    });
-  } else {
-    const managersSnap = await getDocs(query(
-      collection(db, 'users'),
-      where('companyId', '==', data.companyId),
-      where('role', '==', 'sales_manager'),
-    ));
-    const notifPromises = managersSnap.docs.map((d) =>
-      addDoc(collection(db, 'notifications'), {
-        type:          'registration_request',
-        recipientId:   d.id,
-        companyId:     data.companyId,
-        requestId:     ref.id,
-        applicantName: data.displayName,
-        requestedRole: data.requestedRole,
-        read:          false,
-        createdAt:     serverTimestamp(),
-      })
-    );
-    await Promise.all(notifPromises);
-  }
+    })
+  ));
 
   return ref.id;
 }
@@ -160,12 +178,10 @@ export function subscribeToRegistrationRequests(
   companyId?: string,
   managerId?: string,
 ): () => void {
-  const constraints: any[] = [
-    where('status', '==', 'pending'),
-  ];
+  const constraints: any[] = [where('status', '==', 'pending')];
   if (companyId) constraints.push(where('companyId', '==', companyId));
 
-  const q = query(collection(db, 'registrationRequests'), ...constraints, orderBy('createdAt', 'desc'));
+  const q = query(collection(db, 'registrationRequests'), ...constraints);
 
   return onSnapshot(q, (snap) => {
     let data = snap.docs.map((d) => ({ id: d.id, ...d.data() } as RegistrationRequest));
@@ -176,48 +192,69 @@ export function subscribeToRegistrationRequests(
   });
 }
 
+/**
+ * الموافقة على طلب التسجيل من قِبَل المراقب العام:
+ * 1. يستخدم كلمة السر المخزّنة مؤقتاً لإنشاء الحساب
+ * 2. يحذف _pwd فوراً من Firestore
+ * 3. يُضيف doc في users + agents
+ * 4. يُحدّث حالة الطلب → approved
+ *
+ * المراقب العام يعيّن: المراقب (supervisorId) ورئيس المجموعة (groupLeaderId) قبل الموافقة.
+ */
 export async function approveRegistrationRequest(
-  request: RegistrationRequest
+  request: RegistrationRequest,
+  assignData?: {
+    supervisorId?: string;
+    supervisorName?: string;
+    groupLeaderId?: string;
+    groupLeaderName?: string;
+  }
 ): Promise<{ newUid: string }> {
-  const tempPassword = `Tmp_${Math.random().toString(36).slice(2, 10)}!`;
+  // نجيب كلمة السر المؤقتة
+  const reqSnap = await getDoc(doc(db, 'registrationRequests', request.id));
+  const pwd: string = (reqSnap.data() as any)?._pwd ?? `Tmp_${Math.random().toString(36).slice(2, 10)}!`;
+
+  const managerId   = assignData?.supervisorId   || assignData?.groupLeaderId   || '';
+  const managerName = assignData?.supervisorName || assignData?.groupLeaderName || '';
 
   const newUid = await createUserWithSecondaryApp(
     request.email,
-    tempPassword,
+    pwd,
     request.displayName,
     request.requestedRole,
     request.companyId,
-    request.managerId || undefined,
+    managerId || undefined,
   );
 
+  // إضافة في agents
   await addDoc(collection(db, 'agents'), {
     uid:            newUid,
     companyId:      request.companyId,
     name:           request.displayName,
     email:          request.email,
-    group:          request.managerName || '',
+    phone:          request.phone ?? '',
+    group:          managerName,
     productionType: request.requestedRole,
     target:         DEFAULT_TARGETS[request.requestedRole] ?? 0,
-    supervisorId:   request.managerId || '',
-    managerName:    request.managerName || '',
+    supervisorId:   managerId,
+    managerName:    managerName,
     status:         'active',
     createdAt:      serverTimestamp(),
   });
 
+  // تحديث حالة الطلب + حذف كلمة السر المؤقتة
   await updateDoc(doc(db, 'registrationRequests', request.id), {
-    status:      'approved',
-    approvedAt:  serverTimestamp(),
-    approvedUid: newUid,
+    status:           'approved',
+    approvedAt:       serverTimestamp(),
+    approvedUid:      newUid,
+    managerId:        managerId,
+    managerName:      managerName,
+    supervisorId:     assignData?.supervisorId   ?? '',
+    supervisorName:   assignData?.supervisorName ?? '',
+    groupLeaderId:    assignData?.groupLeaderId  ?? '',
+    groupLeaderName:  assignData?.groupLeaderName ?? '',
+    _pwd:             null,   // حذف كلمة السر فوراً
   });
-
-  try {
-    await sendPasswordResetEmail(auth, request.email, {
-      url: `${window.location.origin}/reset-password`,
-      handleCodeInApp: false,
-    });
-  } catch (emailError) {
-    console.error('Email error:', emailError);
-  }
 
   return { newUid };
 }
@@ -226,45 +263,40 @@ export async function rejectRegistrationRequest(requestId: string): Promise<void
   await updateDoc(doc(db, 'registrationRequests', requestId), {
     status:     'rejected',
     rejectedAt: serverTimestamp(),
+    _pwd:       null,
   });
 }
 
-// ─── Potential Managers (إصلاح نهائي مبسط) ─────────────────────────────────────
+// ─── Potential Managers ───────────────────────────────────────────────────────
 
 export async function getPotentialManagers(
   companyId: string,
   requestedRole: UserRole
 ): Promise<User[]> {
-  try {
-    // السلسلة الهرمية المسموح بها كمديرين
-    const allowedRoles: Record<string, string[]> = {
-      'agent': ['group_leader', 'supervisor', 'general_supervisor', 'sales_manager'],
-      'group_leader': ['supervisor', 'general_supervisor', 'sales_manager'],
-      'supervisor': ['general_supervisor', 'sales_manager'],
-      'general_supervisor': ['sales_manager'],
-      'sales_manager': [],
-    };
+  const managerRole: UserRole | undefined = MANAGER_ROLE_FOR[requestedRole];
+  if (!managerRole) return [];
 
-    const targetRoles = allowedRoles[requestedRole] || [];
-    
-    // جلب جميع المستخدمين بالأدوار المسموح بها فقط
-    const constraints: any[] = [
-      where('companyId', '==', companyId),
-      where('status', '==', 'active'),
-    ];
-    
-    // إذا كانت هناك أدوار مسموح بها، أضفها للاستعلام
-    if (targetRoles.length > 0) {
-      constraints.push(where('role', 'in', targetRoles));
-    }
-    
-    const q = query(collection(db, 'users'), ...constraints);
-    const snap = await getDocs(q);
-    const filtered = snap.docs.map((d) => ({ uid: d.id, ...d.data() } as User));
+  const q = query(
+    collection(db, 'users'),
+    where('companyId', '==', companyId),
+    where('role', '==', managerRole),
+  );
+  const snap = await getDocs(q);
 
-    return filtered.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || '', 'ar'));
-  } catch (err) {
-    console.error('[getPotentialManagers] error:', err);
-    return [];
-  }
+  return snap.docs
+    .map((d) => ({ uid: d.id, ...d.data() } as User))
+    .filter((u) => u.status === 'active');
+}
+
+// جلب مستخدمين بدور محدد في شركة
+export async function getUsersByRole(companyId: string, role: UserRole): Promise<User[]> {
+  const q = query(
+    collection(db, 'users'),
+    where('companyId', '==', companyId),
+    where('role', '==', role),
+  );
+  const snap = await getDocs(q);
+  return snap.docs
+    .map((d) => ({ uid: d.id, ...d.data() } as User))
+    .filter((u) => u.status === 'active');
 }

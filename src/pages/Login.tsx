@@ -1,13 +1,13 @@
 import { useState, useEffect, type FormEvent } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { signIn, submitRegistrationRequest, getPotentialManagers } from '../services/authService';
+import { signIn, submitRegistrationRequest } from '../services/authService';
 import { getCompanies } from '../services/companyService';
-import { Shield, Eye, EyeOff, Loader2, CheckCircle2 } from 'lucide-react';
-import type { Company, User, UserRole } from '../types';
+import { Shield, Eye, EyeOff, Loader2, CheckCircle2, Phone, Lock, User, Mail, Building2 } from 'lucide-react';
+import type { Company, UserRole } from '../types';
 import { ROLE_LABELS } from '../types';
 
-// الأدوار التي يُسمح لها بطلب الانضمام
+// الأدوار التي يُسمح لها بطلب الانضمام (الوكيل يختار الشركة فقط)
 const JOINABLE_ROLES: UserRole[] = [
   'sales_manager',
   'general_supervisor',
@@ -15,8 +15,6 @@ const JOINABLE_ROLES: UserRole[] = [
   'group_leader',
   'agent',
 ];
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function mapFirebaseError(code: string): string {
   switch (code) {
@@ -33,14 +31,11 @@ function mapFirebaseError(code: string): string {
   }
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
-
 export default function Login() {
   const { firebaseUser, loading } = useAuth();
   const navigate = useNavigate();
   const [tab, setTab] = useState<'login' | 'join'>('login');
 
-  // ── إعادة توجيه Firebase action URLs (reset password) ─────────────────────
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const mode    = params.get('mode');
@@ -58,112 +53,25 @@ export default function Login() {
   const [loginLoading, setLoginLoading] = useState(false);
 
   // ── Join state ────────────────────────────────────────────────────────────
-  const [joinName,              setJoinName]              = useState('');
-  const [joinEmail,             setJoinEmail]             = useState('');
-  const [joinCompanyId,         setJoinCompanyId]         = useState('');
-  const [joinRole,              setJoinRole]              = useState<UserRole>('agent');
-  
-  // السلسلة الهرمية الكاملة
-  const [joinGeneralSupervisorId, setJoinGeneralSupervisorId] = useState('');
-  const [joinSupervisorId,        setJoinSupervisorId]        = useState('');
-  const [joinGroupLeaderId,       setJoinGroupLeaderId]       = useState('');
-  
-  const [companies,              setCompanies]              = useState<Company[]>([]);
-  const [generalSupervisors,     setGeneralSupervisors]     = useState<User[]>([]);
-  const [supervisors,            setSupervisors]            = useState<User[]>([]);
-  const [groupLeaders,           setGroupLeaders]           = useState<User[]>([]);
-  
-  const [companiesLoading,          setCompaniesLoading]          = useState(true);
-  const [generalSupervisorsLoading, setGeneralSupervisorsLoading] = useState(false);
-  const [supervisorsLoading,        setSupervisorsLoading]        = useState(false);
-  const [groupLeadersLoading,       setGroupLeadersLoading]       = useState(false);
-  
-  const [joinSubmitted,  setJoinSubmitted]  = useState(false);
-  const [joinError,      setJoinError]      = useState('');
-  const [joinLoading,    setJoinLoading]    = useState(false);
+  const [joinName,      setJoinName]      = useState('');
+  const [joinEmail,     setJoinEmail]     = useState('');
+  const [joinPhone,     setJoinPhone]     = useState('');
+  const [joinPassword,  setJoinPassword]  = useState('');
+  const [joinConfirm,   setJoinConfirm]   = useState('');
+  const [showJoinPwd,   setShowJoinPwd]   = useState(false);
+  const [joinCompanyId, setJoinCompanyId] = useState('');
+  const [joinRole,      setJoinRole]      = useState<UserRole>('agent');
+  const [companies,     setCompanies]     = useState<Company[]>([]);
+  const [joinSubmitted, setJoinSubmitted] = useState(false);
+  const [joinError,     setJoinError]     = useState('');
+  const [joinLoading,   setJoinLoading]   = useState(false);
 
-  // ── Load companies once ───────────────────────────────────────────────────
   useEffect(() => {
-    setCompaniesLoading(true);
     getCompanies()
-      .then((data) => {
-        const active = data.filter((c) => c.status === 'active');
-        setCompanies(active);
-      })
-      .catch((err) => {
-        console.error('خطأ في تحميل الشركات:', err);
-        setCompanies([]);
-      })
-      .finally(() => setCompaniesLoading(false));
+      .then((data) => setCompanies(data.filter((c) => c.status === 'active')))
+      .catch(() => setCompanies([]));
   }, []);
 
-  // ── Load general supervisors when company changes ──────────────────────────
-  useEffect(() => {
-    setJoinGeneralSupervisorId('');
-    setGeneralSupervisors([]);
-    setJoinSupervisorId('');
-    setSupervisors([]);
-    setJoinGroupLeaderId('');
-    setGroupLeaders([]);
-
-    if (!joinCompanyId) return;
-
-    setGeneralSupervisorsLoading(true);
-    getPotentialManagers(joinCompanyId, 'general_supervisor')
-      .then((mgrs) => {
-        console.log('المراقبون العاميون:', mgrs);
-        setGeneralSupervisors(mgrs);
-      })
-      .catch((err) => {
-        console.error('خطأ في تحميل المراقبين العاميين:', err);
-        setGeneralSupervisors([]);
-      })
-      .finally(() => setGeneralSupervisorsLoading(false));
-  }, [joinCompanyId]);
-
-  // ── Load supervisors when company changes ───────────────────────
-  useEffect(() => {
-    setJoinSupervisorId('');
-    setSupervisors([]);
-    setJoinGroupLeaderId('');
-    setGroupLeaders([]);
-
-    if (!joinCompanyId) return;
-
-    setSupervisorsLoading(true);
-    getPotentialManagers(joinCompanyId, 'supervisor')
-      .then((mgrs) => {
-        console.log('المراقبون المتاحون:', mgrs);
-        setSupervisors(mgrs);
-      })
-      .catch((err) => {
-        console.error('خطأ في تحميل المراقبين:', err);
-        setSupervisors([]);
-      })
-      .finally(() => setSupervisorsLoading(false));
-  }, [joinCompanyId]);
-
-  // ── Load group leaders when company changes ─────────────────────────────
-  useEffect(() => {
-    setJoinGroupLeaderId('');
-    setGroupLeaders([]);
-
-    if (!joinCompanyId) return;
-
-    setGroupLeadersLoading(true);
-    getPotentialManagers(joinCompanyId, 'group_leader')
-      .then((mgrs) => {
-        console.log('رؤساء المجموعات المتاحون:', mgrs);
-        setGroupLeaders(mgrs);
-      })
-      .catch((err) => {
-        console.error('خطأ في تحميل رؤساء المجموعات:', err);
-        setGroupLeaders([]);
-      })
-      .finally(() => setGroupLeadersLoading(false));
-  }, [joinCompanyId]);
-
-  // ── Redirect if already logged in ─────────────────────────────────────────
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
@@ -172,8 +80,6 @@ export default function Login() {
     );
   }
   if (firebaseUser) return <Navigate to="/" replace />;
-
-  // ── Handlers ──────────────────────────────────────────────────────────────
 
   async function handleLogin(e: FormEvent) {
     e.preventDefault();
@@ -192,72 +98,35 @@ export default function Login() {
     e.preventDefault();
     setJoinError('');
 
-    // Validation - الحقول الإجبارية فقط
-    if (!joinName.trim())      { setJoinError('الاسم الكامل مطلوب'); return; }
-    if (!joinEmail.trim())     { setJoinError('البريد الإلكتروني مطلوب'); return; }
-    if (!joinCompanyId)        { setJoinError('اختر الشركة'); return; }
-    if (!joinRole)             { setJoinError('اختر الوظيفة'); return; }
-    
-    // المديرون اختياريون - ناخذ أي مدير متاح أو نتخطى المستويات
+    if (!joinName.trim())        { setJoinError('الاسم الكامل مطلوب'); return; }
+    if (!joinEmail.trim())       { setJoinError('البريد الإلكتروني مطلوب'); return; }
+    if (!joinPhone.trim())       { setJoinError('رقم الهاتف مطلوب'); return; }
+    if (!joinPassword)           { setJoinError('كلمة المرور مطلوبة'); return; }
+    if (joinPassword.length < 6) { setJoinError('كلمة المرور يجب أن تكون 6 أحرف على الأقل'); return; }
+    if (joinPassword !== joinConfirm) { setJoinError('كلمة المرور وتأكيدها غير متطابقتين'); return; }
+    if (!joinCompanyId)          { setJoinError('اختر الشركة'); return; }
+    if (!joinRole)               { setJoinError('اختر الوظيفة'); return; }
 
     setJoinLoading(true);
     try {
       const company = companies.find((c) => c.id === joinCompanyId);
-      let managerId = '';
-      let managerName = '';
-
-      // تحديد المدير المباشر حسب الدور - ناخذ أي متاح
-      if (joinRole === 'agent') {
-        if (joinGroupLeaderId) {
-          managerId = joinGroupLeaderId;
-          const leader = groupLeaders.find((l) => l.uid === joinGroupLeaderId);
-          managerName = leader?.displayName ?? '';
-        } else if (joinSupervisorId) {
-          managerId = joinSupervisorId;
-          const supervisor = supervisors.find((s) => s.uid === joinSupervisorId);
-          managerName = supervisor?.displayName ?? '';
-        } else if (joinGeneralSupervisorId) {
-          managerId = joinGeneralSupervisorId;
-          const generalSupervisor = generalSupervisors.find((g) => g.uid === joinGeneralSupervisorId);
-          managerName = generalSupervisor?.displayName ?? '';
-        }
-      } else if (joinRole === 'group_leader') {
-        if (joinSupervisorId) {
-          managerId = joinSupervisorId;
-          const supervisor = supervisors.find((s) => s.uid === joinSupervisorId);
-          managerName = supervisor?.displayName ?? '';
-        } else if (joinGeneralSupervisorId) {
-          managerId = joinGeneralSupervisorId;
-          const generalSupervisor = generalSupervisors.find((g) => g.uid === joinGeneralSupervisorId);
-          managerName = generalSupervisor?.displayName ?? '';
-        }
-      } else if (joinRole === 'supervisor') {
-        if (joinGeneralSupervisorId) {
-          managerId = joinGeneralSupervisorId;
-          const generalSupervisor = generalSupervisors.find((g) => g.uid === joinGeneralSupervisorId);
-          managerName = generalSupervisor?.displayName ?? '';
-        }
-      }
-
       await submitRegistrationRequest({
         displayName:   joinName.trim(),
         email:         joinEmail.trim(),
+        phone:         joinPhone.trim(),
+        password:      joinPassword,
         companyId:     joinCompanyId,
         companyName:   company?.name ?? '',
         requestedRole: joinRole,
-        managerId:     managerId,
-        managerName:   managerName,
       });
       setJoinSubmitted(true);
-    } catch (err) {
-      console.error('خطأ في إرسال الطلب:', err);
+    } catch {
       setJoinError('حدث خطأ أثناء الإرسال، حاول مرة أخرى');
     } finally {
       setJoinLoading(false);
     }
   }
 
-  // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div
       className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center p-4"
@@ -298,40 +167,41 @@ export default function Login() {
             {/* ══ Login Tab ════════════════════════════════════════════════ */}
             {tab === 'login' && (
               <form onSubmit={handleLogin} className="space-y-4">
-
                 {loginError && (
                   <div className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm">
                     {loginError}
                   </div>
                 )}
-
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
                     البريد الإلكتروني
                   </label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    autoComplete="email"
-                    className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="email@example.com"
-                  />
+                  <div className="relative">
+                    <Mail size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                      autoComplete="email"
+                      className="w-full pr-10 pl-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="email@example.com"
+                    />
+                  </div>
                 </div>
-
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
                     كلمة المرور
                   </label>
                   <div className="relative">
+                    <Lock size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
                     <input
                       type={showPwd ? 'text' : 'password'}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
                       autoComplete="current-password"
-                      className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 pl-12"
+                      className="w-full pr-10 pl-10 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="••••••••"
                     />
                     <button
@@ -339,11 +209,10 @@ export default function Login() {
                       onClick={() => setShowPwd(!showPwd)}
                       className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                     >
-                      {showPwd ? <EyeOff size={18} /> : <Eye size={18} />}
+                      {showPwd ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
                   </div>
                 </div>
-
                 <button
                   type="submit"
                   disabled={loginLoading}
@@ -352,227 +221,208 @@ export default function Login() {
                   {loginLoading && <Loader2 size={16} className="animate-spin" />}
                   {loginLoading ? 'جاري الدخول...' : 'تسجيل الدخول'}
                 </button>
-
               </form>
             )}
 
-            {/* ══ Join Tab ═════════════════════════════════════════════════ */}
+            {/* ══ Join Tab ══════════════════════════════════════════════════ */}
             {tab === 'join' && (
-              <>
-                {joinSubmitted ? (
-                  /* ── Success State ── */
-                  <div className="text-center py-8">
-                    <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
-                      <CheckCircle2 size={32} className="text-emerald-600" />
-                    </div>
-                    <h3 className="font-bold text-gray-900 mb-2">تم إرسال طلبك بنجاح!</h3>
-                    <p className="text-sm text-gray-500 mb-6">
-                      طلبك قيد المراجعة، انتظر موافقة المسؤول لتفعيل حسابك.
-                    </p>
-                    <button
-                      onClick={() => { setJoinSubmitted(false); setTab('login'); }}
-                      className="text-sm text-blue-600 hover:underline"
-                    >
-                      العودة لتسجيل الدخول
-                    </button>
+              joinSubmitted ? (
+                <div className="text-center py-8">
+                  <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
+                    <CheckCircle2 size={32} className="text-emerald-600" />
                   </div>
-                ) : (
-                  /* ── Join Form ── */
-                  <form onSubmit={handleJoin} className="space-y-4 max-h-[600px] overflow-y-auto">
+                  <h3 className="font-bold text-gray-900 mb-2">تم إرسال طلبك بنجاح!</h3>
+                  <p className="text-sm text-gray-500 mb-2">
+                    طلبك قيد المراجعة من المراقب العام.
+                  </p>
+                  <p className="text-sm text-gray-500 mb-6">
+                    بعد الموافقة يمكنك تسجيل الدخول بكلمة المرور التي أنشأتها.
+                  </p>
+                  <button
+                    onClick={() => { setJoinSubmitted(false); setTab('login'); }}
+                    className="text-sm text-blue-600 hover:underline"
+                  >
+                    العودة لتسجيل الدخول
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleJoin} className="space-y-4">
+                  {joinError && (
+                    <div className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm">
+                      {joinError}
+                    </div>
+                  )}
 
-                    {joinError && (
-                      <div className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm">
-                        {joinError}
-                      </div>
-                    )}
-
-                    {/* 1. الاسم الكامل */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                        الاسم الكامل <span className="text-red-500">*</span>
-                      </label>
+                  {/* الاسم الكامل */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                      الاسم الكامل <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <User size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
                       <input
                         value={joinName}
                         onChange={(e) => setJoinName(e.target.value)}
                         required
-                        className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full pr-10 pl-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         placeholder="محمد أحمد"
                       />
                     </div>
+                  </div>
 
-                    {/* 2. البريد الإلكتروني */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                        البريد الإلكتروني <span className="text-red-500">*</span>
-                      </label>
+                  {/* البريد الإلكتروني */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                      البريد الإلكتروني <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Mail size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
                       <input
                         type="email"
                         value={joinEmail}
                         onChange={(e) => setJoinEmail(e.target.value)}
                         required
                         autoComplete="off"
-                        className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full pr-10 pl-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         placeholder="email@example.com"
                       />
                     </div>
+                  </div>
 
-                    {/* 3. ملاحظة كلمة المرور */}
-                    <div className="flex items-start gap-2 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
-                      <span className="mt-0.5">ℹ️</span>
-                      <span>بعد موافقة المسؤول على طلبك، ستصلك رسالة بريد إلكتروني لتعيين كلمة المرور الخاصة بك.</span>
+                  {/* رقم الهاتف */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                      رقم الهاتف <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Phone size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <input
+                        type="tel"
+                        value={joinPhone}
+                        onChange={(e) => setJoinPhone(e.target.value)}
+                        required
+                        className="w-full pr-10 pl-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="201012345678"
+                      />
                     </div>
+                  </div>
 
-                    {/* 4. الشركة */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                        الشركة <span className="text-red-500">*</span>
-                      </label>
-                      {companiesLoading ? (
-                        <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-400">
-                          <Loader2 size={14} className="animate-spin" />
-                          جاري تحميل الشركات...
-                        </div>
-                      ) : companies.length === 0 ? (
-                        <div className="px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-700">
-                          لا توجد شركات متاحة حالياً.
-                        </div>
-                      ) : (
-                        <select
-                          value={joinCompanyId}
-                          onChange={(e) => setJoinCompanyId(e.target.value)}
-                          required
-                          className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                          <option value="">— اختر الشركة —</option>
-                          {companies.map((c) => (
-                            <option key={c.id} value={c.id}>{c.name}</option>
-                          ))}
-                        </select>
+                  {/* كلمة المرور */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                      كلمة المرور <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Lock size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <input
+                        type={showJoinPwd ? 'text' : 'password'}
+                        value={joinPassword}
+                        onChange={(e) => setJoinPassword(e.target.value)}
+                        required
+                        autoComplete="new-password"
+                        className="w-full pr-10 pl-10 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="6 أحرف على الأقل"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowJoinPwd(!showJoinPwd)}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        {showJoinPwd ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* تأكيد كلمة المرور */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                      تأكيد كلمة المرور <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Lock size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <input
+                        type={showJoinPwd ? 'text' : 'password'}
+                        value={joinConfirm}
+                        onChange={(e) => setJoinConfirm(e.target.value)}
+                        required
+                        autoComplete="new-password"
+                        className={`w-full pr-10 pl-4 py-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                          joinConfirm && joinConfirm !== joinPassword
+                            ? 'border-red-300 bg-red-50'
+                            : joinConfirm && joinConfirm === joinPassword
+                            ? 'border-emerald-300 bg-emerald-50'
+                            : 'border-gray-300'
+                        }`}
+                        placeholder="••••••••"
+                      />
+                      {joinConfirm && joinConfirm === joinPassword && (
+                        <CheckCircle2 size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-500" />
                       )}
                     </div>
+                  </div>
 
-                    {/* 5. الوظيفة */}
-                    {joinCompanyId && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                          الوظيفة المطلوبة <span className="text-red-500">*</span>
-                        </label>
-                        <select
-                          value={joinRole}
-                          onChange={(e) => setJoinRole(e.target.value as UserRole)}
-                          required
-                          className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                          {JOINABLE_ROLES.map((r) => (
-                            <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-                          ))}
-                        </select>
-                      </div>
+                  {/* الشركة */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                      الشركة <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Building2 size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <select
+                        value={joinCompanyId}
+                        onChange={(e) => setJoinCompanyId(e.target.value)}
+                        required
+                        className="w-full pr-10 pl-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none"
+                      >
+                        <option value="">— اختر الشركة —</option>
+                        {companies.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    {companies.length === 0 && (
+                      <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+                        <Loader2 size={11} className="animate-spin" /> جاري تحميل الشركات...
+                      </p>
                     )}
+                  </div>
 
-                    {/* 6. المراقب العام */}
-                    {joinCompanyId && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                          المراقب العام
-                        </label>
-                        {generalSupervisorsLoading ? (
-                          <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-400">
-                            <Loader2 size={14} className="animate-spin" />
-                            جاري البحث...
-                          </div>
-                        ) : generalSupervisors.length === 0 ? (
-                          <div className="px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-700">
-                            لا يوجد مراقب عام متاح في الشركة المختارة.
-                          </div>
-                        ) : (
-                          <select
-                            value={joinGeneralSupervisorId}
-                            onChange={(e) => setJoinGeneralSupervisorId(e.target.value)}
-                            className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="">— اختر المراقب العام (اختياري) —</option>
-                            {generalSupervisors.map((g) => (
-                              <option key={g.uid} value={g.uid}>{g.displayName}</option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
-                    )}
-
-                    {/* 7. المراقب */}
-                    {joinCompanyId && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                          المراقب
-                        </label>
-                        {supervisorsLoading ? (
-                          <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-400">
-                            <Loader2 size={14} className="animate-spin" />
-                            جاري البحث...
-                          </div>
-                        ) : supervisors.length === 0 ? (
-                          <div className="px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-700">
-                            لا يوجد مراقب متاح.
-                          </div>
-                        ) : (
-                          <select
-                            value={joinSupervisorId}
-                            onChange={(e) => setJoinSupervisorId(e.target.value)}
-                            className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="">— اختر المراقب (اختياري) —</option>
-                            {supervisors.map((s) => (
-                              <option key={s.uid} value={s.uid}>{s.displayName}</option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
-                    )}
-
-                    {/* 8. رئيس المجموعة */}
-                    {joinCompanyId && (joinRole === 'agent' || joinRole === 'group_leader' || joinRole === 'supervisor') && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                          رئيس المجموعة <span className="text-red-500">*</span>
-                        </label>
-                        {groupLeadersLoading ? (
-                          <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-400">
-                            <Loader2 size={14} className="animate-spin" />
-                            جاري البحث...
-                          </div>
-                        ) : groupLeaders.length === 0 ? (
-                          <div className="px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-700">
-                            لا يوجد رئيس مجموعة متاح تحت هذا المراقب.
-                          </div>
-                        ) : (
-                          <select
-                            value={joinGroupLeaderId}
-                            onChange={(e) => setJoinGroupLeaderId(e.target.value)}
-                            required
-                            className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="">— اختر رئيس المجموعة —</option>
-                            {groupLeaders.map((l) => (
-                              <option key={l.uid} value={l.uid}>{l.displayName}</option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Submit */}
-                    <button
-                      type="submit"
-                      disabled={joinLoading}
-                      className="w-full py-3 bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 text-white font-semibold rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  {/* الوظيفة */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                      الوظيفة المطلوبة <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={joinRole}
+                      onChange={(e) => setJoinRole(e.target.value as UserRole)}
+                      required
+                      className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      {joinLoading && <Loader2 size={16} className="animate-spin" />}
-                      {joinLoading ? 'جاري الإرسال...' : 'إرسال طلب الانضمام'}
-                    </button>
-                  </form>
-                )}
-              </>
+                      {JOINABLE_ROLES.map((r) => (
+                        <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* ملاحظة توضيحية */}
+                  <div className="flex items-start gap-2 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
+                    <span className="mt-0.5 flex-shrink-0">ℹ️</span>
+                    <span>
+                      بعد مراجعة الطلب، سيقوم المراقب العام بتعيين المراقب ورئيس المجموعة المناسبين لك.
+                      يمكنك تسجيل الدخول فور الموافقة بكلمة المرور التي أنشأتها.
+                    </span>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={joinLoading}
+                    className="w-full py-3 bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 text-white font-semibold rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {joinLoading && <Loader2 size={16} className="animate-spin" />}
+                    {joinLoading ? 'جاري الإرسال...' : 'إرسال طلب الانضمام'}
+                  </button>
+                </form>
+              )
             )}
           </div>
         </div>

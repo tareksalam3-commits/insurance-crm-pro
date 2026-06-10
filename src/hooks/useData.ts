@@ -129,16 +129,11 @@ export function useUsers(companyId?: string) {
   useEffect(() => {
     setLoading(true);
     const unsub = subscribeToUsers((data) => {
-      let result = data;
-      // فلترة المستخدمين للمراقبين ورؤساء المجموعات (يشوفوا مرؤوسيهم بس)
-      if (user && (user.role === 'general_supervisor' || user.role === 'supervisor' || user.role === 'group_leader')) {
-        result = data.filter((u) => u.managerId === user.uid);
-      }
-      setUsers(result);
+      setUsers(data);
       setLoading(false);
     }, effectiveCompanyId);
     return unsub;
-  }, [effectiveCompanyId, user?.uid, user?.role]);
+  }, [effectiveCompanyId]);
 
   async function create(data: { email: string; password: string; displayName: string; role: UserRole; companyId: string; managerId?: string }) {
     return createUserWithSecondaryApp(data.email, data.password, data.displayName, data.role, data.companyId, data.managerId);
@@ -180,8 +175,10 @@ export function useRegistrationRequests() {
     setLoading(true);
 
     const companyFilter = user.role === 'super_admin' ? undefined : user.companyId;
-    const managerFilter = (user.role === 'general_supervisor' || user.role === 'supervisor')
-      ? user.uid : undefined;
+
+    // المراقب العام يرى كل طلبات الشركة (هو المسؤول عن الموافقة والتعيين)
+    // المراقب يرى الطلبات الموجهة إليه فقط
+    const managerFilter = user.role === 'supervisor' ? user.uid : undefined;
 
     const unsub = subscribeToRegistrationRequests(
       (data) => {

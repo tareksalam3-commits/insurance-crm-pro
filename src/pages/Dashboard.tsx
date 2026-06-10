@@ -72,10 +72,16 @@ export default function Dashboard() {
       case 'sales_manager':
         return clients;
       case 'general_supervisor':
+        return clients.filter((c) =>
+          filteredAgents.some((a) => a.name === c.agentName)
+        );
       case 'supervisor':
+        return clients.filter((c) =>
+          filteredAgents.some((a) => a.name === c.agentName)
+        );
       case 'group_leader':
         return clients.filter((c) =>
-          filteredAgents.some((a) => a.uid === c.agentId)
+          filteredAgents.some((a) => a.name === c.agentName)
         );
       default:
         return clients;
@@ -102,7 +108,7 @@ export default function Dashboard() {
           <p className="text-xs text-gray-400">{roleLabel}</p>
         </div>
         <div className="flex gap-2">
-          <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value as typeof selectedMonth)}
+          <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}
             className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
             {MONTH_LIST.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>

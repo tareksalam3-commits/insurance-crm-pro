@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
-import { Bell, CheckCircle2, MessageCircle, Search, Wallet } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Bell, CheckCircle2, MessageCircle, Search, Wallet, Loader2 } from 'lucide-react';
 import { useClients } from '../hooks/useData';
 import { useAuth } from '../hooks/useAuth';
 import { formatCurrency } from '../utils/formatUtils';
@@ -18,14 +18,14 @@ const NOW = new Date();
 export default function Collections() {
   const { user } = useAuth();
   const { clients } = useClients();
-  const [selectedMonth, setSelectedMonth] = useState(MONTH_LIST[NOW.getMonth()]);
-  const [selectedYear, setSelectedYear]   = useState(NOW.getFullYear());
-  const [search, setSearch]               = useState('');
-  const [records, setRecords]             = useState<PaymentRecord[]>([]);
 
-  // FIX #11: تتبع أزرار قيد التنفيذ لمنع التحصيل المكرر
+  const [selectedMonth, setSelectedMonth] = useState(MONTH_LIST[NOW.getMonth()]);
+  const [selectedYear,  setSelectedYear]  = useState(NOW.getFullYear());
+  const [search,        setSearch]        = useState('');
+  const [records,       setRecords]       = useState<PaymentRecord[]>([]);
   const [collectingIds, setCollectingIds] = useState<Set<string>>(new Set());
 
+  // اشتراك realtime في سجلات التحصيل للشهر المختار
   useEffect(() => {
     if (!user?.companyId) return;
     const unsub = subscribeToPaymentRecords(
@@ -36,6 +36,8 @@ export default function Collections() {
     return unsub;
   }, [user?.companyId, selectedMonth, selectedYear]);
 
+  // فلترة العملاء المستحقة في هذا الشهر
+  // كل دور يرى عملاءه فقط (useClients يتولى الفلترة حسب الدور)
   const dueClients = useMemo(() => {
     return clients.filter((c) => {
       if (c.status === 'ملغي') return false;
@@ -45,40 +47,49 @@ export default function Collections() {
       if (!isDue) return false;
       if (!search) return true;
       const q = search.toLowerCase();
-      return c.clientName.toLowerCase().includes(q) || c.agentName.toLowerCase().includes(q);
+      return (
+        c.clientName.toLowerCase().includes(q) ||
+        c.agentName.toLowerCase().includes(q)
+      );
     });
   }, [clients, selectedMonth, selectedYear, search]);
 
+  // إحصائيات
   const collectedCount  = dueClients.filter((c) => records.some((r) => r.clientId === c.id)).length;
   const pendingCount    = dueClients.length - collectedCount;
-  const totalAmount     = dueClients.reduce((sum, c) => sum + calculatePaymentAmount(c.annualTarget, c.paymentMethod), 0);
+  const totalAmount     = dueClients.reduce(
+    (sum, c) => sum + calculatePaymentAmount(c.annualTarget, c.paymentMethod), 0
+  );
   const collectedAmount = dueClients
     .filter((c) => records.some((r) => r.clientId === c.id))
     .reduce((sum, c) => sum + calculatePaymentAmount(c.annualTarget, c.paymentMethod), 0);
 
-  // FIX #11: فحص التكرار قبل التسجيل + loading state لكل زر
+  // تحصيل دفعة — مع حماية من التكرار
   async function handleCollect(client: Client) {
-    if (!user?.companyId) return;
-    if (collectingIds.has(client.id)) return; // منع الضغط المتكرر
+    if (!user?.companyId)           return;
+    if (collectingIds.has(client.id)) return;
 
     setCollectingIds((prev) => new Set(prev).add(client.id));
     try {
-      // تحقق مزدوج: الـ UI + Firestore
+      // تحقق مزدوج: Firestore
       const alreadyExists = await checkPaymentExists(client.id, selectedMonth, selectedYear);
       if (alreadyExists) return;
 
       const amount = calculatePaymentAmount(client.annualTarget, client.paymentMethod);
       await addPaymentRecord({
-        companyId:  user.companyId,
-        clientId:   client.id,
-        clientName: client.clientName,
-        agentName:  client.agentName,
-        group:      client.group,
+        companyId:   user.companyId,
+        clientId:    client.id,
+        clientName:  client.clientName,
+        agentName:   client.agentName,
+        group:       client.group,
         amount,
-        month:      selectedMonth,
-        year:       selectedYear,
+        month:       selectedMonth,
+        year:        selectedYear,
         collectedBy: user.displayName ?? user.email ?? user.uid,
       });
+    } catch (err) {
+      console.error('خطأ في التحصيل:', err);
+      alert('حدث خطأ أثناء التحصيل. حاول مرة أخرى.');
     } finally {
       setCollectingIds((prev) => {
         const next = new Set(prev);
@@ -90,15 +101,18 @@ export default function Collections() {
 
   async function handleUndo(clientId: string) {
     const record = records.find((r) => r.clientId === clientId);
-    if (record) await deletePaymentRecord(record.id);
+    if (record) {
+      try {
+        await deletePaymentRecord(record.id);
+      } catch {
+        alert('حدث خطأ أثناء الإلغاء.');
+      }
+    }
   }
 
-  // FIX #12: رقم الواتساب بدون افتراض كود الدولة
   function handleWhatsApp(client: Client) {
     if (!client.phone) return;
     const amount = calculatePaymentAmount(client.annualTarget, client.paymentMethod);
-    // المستخدم يُدخل الرقم بالصيغة الدولية كاملة (مثال: 201012345678)
-    // نحذف أي مسافات أو شرطات فقط
     const cleanPhone = client.phone.replace(/[\s\-]/g, '');
     const msg = encodeURIComponent(
       `السلام عليكم ${client.clientName}،\nيرجى العلم باستحقاق دفعة بمبلغ ${formatCurrency(amount)} لشهر ${selectedMonth} ${selectedYear}.\nشكراً`
@@ -108,15 +122,17 @@ export default function Collections() {
 
   return (
     <div className="space-y-4">
+
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-          <Wallet size={20} className="text-blue-600" />التحصيل
+          <Wallet size={20} className="text-blue-600" />
+          التحصيل
         </h1>
         <div className="flex gap-2">
           <select
             value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value as typeof selectedMonth)}
+            onChange={(e) => setSelectedMonth(e.target.value)}
             className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             {MONTH_LIST.map((m) => <option key={m} value={m}>{m}</option>)}
@@ -150,7 +166,7 @@ export default function Collections() {
             <div className="mt-2 h-2 bg-blue-100 rounded-full overflow-hidden">
               <div
                 className="h-2 bg-blue-600 rounded-full transition-all duration-500"
-                style={{ width: `${Math.round(collectedAmount / totalAmount * 100)}%` }}
+                style={{ width: `${Math.min(100, Math.round(collectedAmount / totalAmount * 100))}%` }}
               />
             </div>
           )}
@@ -177,11 +193,11 @@ export default function Collections() {
       ) : (
         <div className="space-y-2">
           {dueClients.map((client) => {
-            const record     = records.find((r) => r.clientId === client.id);
+            const record      = records.find((r) => r.clientId === client.id);
             const isCollected = !!record;
-            const isNew      = isNewProductionMonth(client, selectedMonth, selectedYear);
-            const amount     = calculatePaymentAmount(client.annualTarget, client.paymentMethod);
-            const isLoading  = collectingIds.has(client.id);
+            const isNew       = isNewProductionMonth(client, selectedMonth, selectedYear);
+            const amount      = calculatePaymentAmount(client.annualTarget, client.paymentMethod);
+            const isLoading   = collectingIds.has(client.id);
 
             return (
               <div
@@ -205,7 +221,7 @@ export default function Collections() {
                     </p>
                   </div>
 
-                  <div className="text-left flex-shrink-0 mr-2">
+                  <div className="text-left flex-shrink-0 mx-2">
                     <p className="font-bold text-gray-900 text-sm">{formatCurrency(amount)}</p>
                     {isCollected && <p className="text-xs text-emerald-600 font-medium">✓ تم</p>}
                   </div>
@@ -230,14 +246,16 @@ export default function Collections() {
                       <button
                         onClick={() => handleCollect(client)}
                         disabled={isLoading}
-                        className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 transition-colors text-xs font-medium flex items-center gap-1 disabled:opacity-60 disabled:cursor-not-allowed"
+                        className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 active:scale-95 transition-all text-xs font-semibold flex items-center gap-1 disabled:opacity-60 disabled:cursor-not-allowed min-w-[72px] justify-center"
                       >
                         {isLoading ? (
-                          <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          <Loader2 size={13} className="animate-spin" />
                         ) : (
-                          <CheckCircle2 size={13} />
+                          <>
+                            <CheckCircle2 size={13} />
+                            تحصيل
+                          </>
                         )}
-                        تحصيل
                       </button>
                     )}
                   </div>
