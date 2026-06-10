@@ -121,49 +121,47 @@ export default function Login() {
       .finally(() => setGeneralSupervisorsLoading(false));
   }, [joinCompanyId]);
 
-  // ── Load supervisors when general supervisor changes ───────────────────────
+  // ── Load supervisors when company changes ───────────────────────
   useEffect(() => {
     setJoinSupervisorId('');
     setSupervisors([]);
     setJoinGroupLeaderId('');
     setGroupLeaders([]);
 
-    if (!joinGeneralSupervisorId || !joinCompanyId) return;
+    if (!joinCompanyId) return;
 
     setSupervisorsLoading(true);
     getPotentialManagers(joinCompanyId, 'supervisor')
       .then((mgrs) => {
-        const filtered = mgrs.filter((m) => m.managerId === joinGeneralSupervisorId);
-        console.log('المراقبون المفلترون:', filtered);
-        setSupervisors(filtered);
+        console.log('المراقبون المتاحون:', mgrs);
+        setSupervisors(mgrs);
       })
       .catch((err) => {
         console.error('خطأ في تحميل المراقبين:', err);
         setSupervisors([]);
       })
       .finally(() => setSupervisorsLoading(false));
-  }, [joinGeneralSupervisorId, joinCompanyId]);
+  }, [joinCompanyId]);
 
-  // ── Load group leaders when supervisor changes ─────────────────────────────
+  // ── Load group leaders when company changes ─────────────────────────────
   useEffect(() => {
     setJoinGroupLeaderId('');
     setGroupLeaders([]);
 
-    if (!joinSupervisorId || !joinCompanyId) return;
+    if (!joinCompanyId) return;
 
     setGroupLeadersLoading(true);
     getPotentialManagers(joinCompanyId, 'group_leader')
       .then((mgrs) => {
-        const filtered = mgrs.filter((m) => m.managerId === joinSupervisorId);
-        console.log('رؤساء المجموعات المفلترون:', filtered);
-        setGroupLeaders(filtered);
+        console.log('رؤساء المجموعات المتاحون:', mgrs);
+        setGroupLeaders(mgrs);
       })
       .catch((err) => {
         console.error('خطأ في تحميل رؤساء المجموعات:', err);
         setGroupLeaders([]);
       })
       .finally(() => setGroupLeadersLoading(false));
-  }, [joinSupervisorId, joinCompanyId]);
+  }, [joinCompanyId]);
 
   // ── Redirect if already logged in ─────────────────────────────────────────
   if (loading) {
@@ -463,7 +461,7 @@ export default function Login() {
                     {joinCompanyId && (
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                          المراقب العام <span className="text-red-500">*</span>
+                          المراقب العام
                         </label>
                         {generalSupervisorsLoading ? (
                           <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-400">
@@ -478,10 +476,9 @@ export default function Login() {
                           <select
                             value={joinGeneralSupervisorId}
                             onChange={(e) => setJoinGeneralSupervisorId(e.target.value)}
-                            required
                             className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                           >
-                            <option value="">— اختر المراقب العام —</option>
+                            <option value="">— اختر المراقب العام (اختياري) —</option>
                             {generalSupervisors.map((g) => (
                               <option key={g.uid} value={g.uid}>{g.displayName}</option>
                             ))}
@@ -491,10 +488,10 @@ export default function Login() {
                     )}
 
                     {/* 7. المراقب */}
-                    {joinGeneralSupervisorId && (
+                    {joinCompanyId && (
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                          المراقب <span className="text-red-500">*</span>
+                          المراقب
                         </label>
                         {supervisorsLoading ? (
                           <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-400">
@@ -503,16 +500,15 @@ export default function Login() {
                           </div>
                         ) : supervisors.length === 0 ? (
                           <div className="px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-700">
-                            لا يوجد مراقب متاح تحت هذا المراقب العام.
+                            لا يوجد مراقب متاح.
                           </div>
                         ) : (
                           <select
                             value={joinSupervisorId}
                             onChange={(e) => setJoinSupervisorId(e.target.value)}
-                            required
                             className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                           >
-                            <option value="">— اختر المراقب —</option>
+                            <option value="">— اختر المراقب (اختياري) —</option>
                             {supervisors.map((s) => (
                               <option key={s.uid} value={s.uid}>{s.displayName}</option>
                             ))}
@@ -521,8 +517,8 @@ export default function Login() {
                       </div>
                     )}
 
-                    {/* 8. رئيس المجموعة (للوكلاء والمراقبين ورؤساء المجموعات) */}
-                    {joinSupervisorId && (joinRole === 'agent' || joinRole === 'group_leader' || joinRole === 'supervisor') && (
+                    {/* 8. رئيس المجموعة */}
+                    {joinCompanyId && (joinRole === 'agent' || joinRole === 'group_leader' || joinRole === 'supervisor') && (
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1.5">
                           رئيس المجموعة <span className="text-red-500">*</span>
