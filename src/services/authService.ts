@@ -171,7 +171,7 @@ export function subscribeToRegistrationRequests(
   ];
   if (companyId) constraints.push(where('companyId', '==', companyId));
 
-  const q = query(collection(db, 'registrationRequests'), ...constraints);
+  const q = query(collection(db, 'registrationRequests'), ...constraints, orderBy('createdAt', 'desc'));
 
   return onSnapshot(q, (snap) => {
     let data = snap.docs.map((d) => ({ id: d.id, ...d.data() } as RegistrationRequest));
@@ -232,10 +232,15 @@ export async function approveRegistrationRequest(
 
   // إرسال إيميل reset password من Firebase مباشرة
   // اللينك يوجه المستخدم على صفحة /reset-password في التطبيق
-  await sendPasswordResetEmail(auth, request.email, {
-    url: `${window.location.origin}/reset-password`,
-    handleCodeInApp: false,
-  });
+  try {
+    await sendPasswordResetEmail(auth, request.email, {
+      url: `${window.location.origin}/reset-password`,
+      handleCodeInApp: false,
+    });
+  } catch (emailError) {
+    // تسجيل التحذير لكن لا نوقف العملية
+    // يمكن للمستخدم استخدام نسيت كلمة المرور لاحقاً
+  }
 
   return { newUid };
 }

@@ -51,6 +51,9 @@ export default function Requests() {
           .then((mgrs) => setGroupLeaders(mgrs))
           .catch(() => setGroupLeaders([]))
           .finally(() => setLeadersLoading(false));
+      } else {
+        // رسالة نجاح للأدوار الأخرى
+        alert('تمت موافقة الطلب بنجاح!');
       }
     } catch (e) {
       // معالجة الخطأ بدون طباعة على console
