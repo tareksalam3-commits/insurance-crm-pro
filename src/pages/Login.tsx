@@ -64,15 +64,16 @@ export default function Login() {
   const [joinRole,              setJoinRole]              = useState<UserRole>('agent');
   
   // السلسلة الهرمية الكاملة
-  const [joinGeneralSupervisorId, setJoinGeneralSupervisorId] = useState('');  // المراقب العام
-  const [joinSupervisorId,        setJoinSupervisorId]        = useState('');  // المراقب
-  const [joinGroupLeaderId,       setJoinGroupLeaderId]       = useState('');  // رئيس المجموعة
+  const [joinGeneralSupervisorId, setJoinGeneralSupervisorId] = useState('');
+  const [joinSupervisorId,        setJoinSupervisorId]        = useState('');
+  const [joinGroupLeaderId,       setJoinGroupLeaderId]       = useState('');
   
   const [companies,              setCompanies]              = useState<Company[]>([]);
   const [generalSupervisors,     setGeneralSupervisors]     = useState<User[]>([]);
   const [supervisors,            setSupervisors]            = useState<User[]>([]);
   const [groupLeaders,           setGroupLeaders]           = useState<User[]>([]);
   
+  const [companiesLoading,          setCompaniesLoading]          = useState(true);
   const [generalSupervisorsLoading, setGeneralSupervisorsLoading] = useState(false);
   const [supervisorsLoading,        setSupervisorsLoading]        = useState(false);
   const [groupLeadersLoading,       setGroupLeadersLoading]       = useState(false);
@@ -83,9 +84,17 @@ export default function Login() {
 
   // ── Load companies once ───────────────────────────────────────────────────
   useEffect(() => {
+    setCompaniesLoading(true);
     getCompanies()
-      .then((data) => setCompanies(data.filter((c) => c.status === 'active')))
-      .catch(() => setCompanies([]));
+      .then((data) => {
+        const active = data.filter((c) => c.status === 'active');
+        setCompanies(active);
+      })
+      .catch((err) => {
+        console.error('خطأ في تحميل الشركات:', err);
+        setCompanies([]);
+      })
+      .finally(() => setCompaniesLoading(false));
   }, []);
 
   // ── Load general supervisors when company changes ──────────────────────────
@@ -99,11 +108,16 @@ export default function Login() {
 
     if (!joinCompanyId) return;
 
-    // جيب المراقبين العاميين للشركة
     setGeneralSupervisorsLoading(true);
     getPotentialManagers(joinCompanyId, 'general_supervisor')
-      .then((mgrs) => setGeneralSupervisors(mgrs))
-      .catch(() => setGeneralSupervisors([]))
+      .then((mgrs) => {
+        console.log('المراقبون العاميون:', mgrs);
+        setGeneralSupervisors(mgrs);
+      })
+      .catch((err) => {
+        console.error('خطأ في تحميل المراقبين العاميين:', err);
+        setGeneralSupervisors([]);
+      })
       .finally(() => setGeneralSupervisorsLoading(false));
   }, [joinCompanyId]);
 
@@ -116,15 +130,17 @@ export default function Login() {
 
     if (!joinGeneralSupervisorId || !joinCompanyId) return;
 
-    // جيب المراقبين التابعين للمراقب العام
     setSupervisorsLoading(true);
     getPotentialManagers(joinCompanyId, 'supervisor')
       .then((mgrs) => {
-        // فلتر المراقبين الذين يتبعون للمراقب العام المختار
         const filtered = mgrs.filter((m) => m.managerId === joinGeneralSupervisorId);
+        console.log('المراقبون المفلترون:', filtered);
         setSupervisors(filtered);
       })
-      .catch(() => setSupervisors([]))
+      .catch((err) => {
+        console.error('خطأ في تحميل المراقبين:', err);
+        setSupervisors([]);
+      })
       .finally(() => setSupervisorsLoading(false));
   }, [joinGeneralSupervisorId, joinCompanyId]);
 
@@ -135,15 +151,17 @@ export default function Login() {
 
     if (!joinSupervisorId || !joinCompanyId) return;
 
-    // جيب رؤساء المجموعات التابعين للمراقب المختار
     setGroupLeadersLoading(true);
     getPotentialManagers(joinCompanyId, 'group_leader')
       .then((mgrs) => {
-        // فلتر رؤساء المجموعات الذين يتبعون للمراقب المختار
         const filtered = mgrs.filter((m) => m.managerId === joinSupervisorId);
+        console.log('رؤساء المجموعات المفلترون:', filtered);
         setGroupLeaders(filtered);
       })
-      .catch(() => setGroupLeaders([]))
+      .catch((err) => {
+        console.error('خطأ في تحميل رؤساء المجموعات:', err);
+        setGroupLeaders([]);
+      })
       .finally(() => setGroupLeadersLoading(false));
   }, [joinSupervisorId, joinCompanyId]);
 
@@ -220,7 +238,8 @@ export default function Login() {
         managerName:   managerName,
       });
       setJoinSubmitted(true);
-    } catch {
+    } catch (err) {
+      console.error('خطأ في إرسال الطلب:', err);
       setJoinError('حدث خطأ أثناء الإرسال، حاول مرة أخرى');
     } finally {
       setJoinLoading(false);
@@ -322,216 +341,229 @@ export default function Login() {
                   {loginLoading && <Loader2 size={16} className="animate-spin" />}
                   {loginLoading ? 'جاري الدخول...' : 'تسجيل الدخول'}
                 </button>
+
               </form>
             )}
 
-            {/* ══ Join Tab ══════════════════════════════════════════════════ */}
+            {/* ══ Join Tab ═════════════════════════════════════════════════ */}
             {tab === 'join' && (
-              joinSubmitted ? (
-                /* ── Success State ── */
-                <div className="text-center py-8">
-                  <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
-                    <CheckCircle2 size={32} className="text-emerald-600" />
-                  </div>
-                  <h3 className="font-bold text-gray-900 mb-2">تم إرسال طلبك بنجاح!</h3>
-                  <p className="text-sm text-gray-500 mb-6">
-                    طلبك قيد المراجعة، انتظر موافقة المسؤول لتفعيل حسابك.
-                  </p>
-                  <button
-                    onClick={() => { setJoinSubmitted(false); setTab('login'); }}
-                    className="text-sm text-blue-600 hover:underline"
-                  >
-                    العودة لتسجيل الدخول
-                  </button>
-                </div>
-              ) : (
-                /* ── Join Form ── */
-                <form onSubmit={handleJoin} className="space-y-4 max-h-96 overflow-y-auto">
-
-                  {joinError && (
-                    <div className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm">
-                      {joinError}
+              <>
+                {joinSubmitted ? (
+                  /* ── Success State ── */
+                  <div className="text-center py-8">
+                    <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4">
+                      <CheckCircle2 size={32} className="text-emerald-600" />
                     </div>
-                  )}
-
-                  {/* 1. الاسم الكامل */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      الاسم الكامل <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      value={joinName}
-                      onChange={(e) => setJoinName(e.target.value)}
-                      required
-                      className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="محمد أحمد"
-                    />
-                  </div>
-
-                  {/* 2. البريد الإلكتروني */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      البريد الإلكتروني <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="email"
-                      value={joinEmail}
-                      onChange={(e) => setJoinEmail(e.target.value)}
-                      required
-                      autoComplete="off"
-                      className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="email@example.com"
-                    />
-                  </div>
-
-                  {/* 3. ملاحظة كلمة المرور */}
-                  <div className="flex items-start gap-2 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
-                    <span className="mt-0.5">ℹ️</span>
-                    <span>بعد موافقة المسؤول على طلبك، ستصلك رسالة بريد إلكتروني لتعيين كلمة المرور الخاصة بك.</span>
-                  </div>
-
-                  {/* 4. الشركة */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      الشركة <span className="text-red-500">*</span>
-                    </label>
-                    <select
-                      value={joinCompanyId}
-                      onChange={(e) => setJoinCompanyId(e.target.value)}
-                      required
-                      className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    <h3 className="font-bold text-gray-900 mb-2">تم إرسال طلبك بنجاح!</h3>
+                    <p className="text-sm text-gray-500 mb-6">
+                      طلبك قيد المراجعة، انتظر موافقة المسؤول لتفعيل حسابك.
+                    </p>
+                    <button
+                      onClick={() => { setJoinSubmitted(false); setTab('login'); }}
+                      className="text-sm text-blue-600 hover:underline"
                     >
-                      <option value="">— اختر الشركة —</option>
-                      {companies.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
-                    {companies.length === 0 && (
-                      <p className="text-xs text-gray-400 mt-1">جاري تحميل الشركات...</p>
+                      العودة لتسجيل الدخول
+                    </button>
+                  </div>
+                ) : (
+                  /* ── Join Form ── */
+                  <form onSubmit={handleJoin} className="space-y-4 max-h-[600px] overflow-y-auto">
+
+                    {joinError && (
+                      <div className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm">
+                        {joinError}
+                      </div>
                     )}
-                  </div>
 
-                  {/* 5. الوظيفة */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      الوظيفة المطلوبة <span className="text-red-500">*</span>
-                    </label>
-                    <select
-                      value={joinRole}
-                      onChange={(e) => setJoinRole(e.target.value as UserRole)}
-                      required
-                      className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    {/* 1. الاسم الكامل */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                        الاسم الكامل <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        value={joinName}
+                        onChange={(e) => setJoinName(e.target.value)}
+                        required
+                        className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="محمد أحمد"
+                      />
+                    </div>
+
+                    {/* 2. البريد الإلكتروني */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                        البريد الإلكتروني <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="email"
+                        value={joinEmail}
+                        onChange={(e) => setJoinEmail(e.target.value)}
+                        required
+                        autoComplete="off"
+                        className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="email@example.com"
+                      />
+                    </div>
+
+                    {/* 3. ملاحظة كلمة المرور */}
+                    <div className="flex items-start gap-2 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
+                      <span className="mt-0.5">ℹ️</span>
+                      <span>بعد موافقة المسؤول على طلبك، ستصلك رسالة بريد إلكتروني لتعيين كلمة المرور الخاصة بك.</span>
+                    </div>
+
+                    {/* 4. الشركة */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                        الشركة <span className="text-red-500">*</span>
+                      </label>
+                      {companiesLoading ? (
+                        <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-400">
+                          <Loader2 size={14} className="animate-spin" />
+                          جاري تحميل الشركات...
+                        </div>
+                      ) : companies.length === 0 ? (
+                        <div className="px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-700">
+                          لا توجد شركات متاحة حالياً.
+                        </div>
+                      ) : (
+                        <select
+                          value={joinCompanyId}
+                          onChange={(e) => setJoinCompanyId(e.target.value)}
+                          required
+                          className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">— اختر الشركة —</option>
+                          {companies.map((c) => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+
+                    {/* 5. الوظيفة */}
+                    {joinCompanyId && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                          الوظيفة المطلوبة <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                          value={joinRole}
+                          onChange={(e) => setJoinRole(e.target.value as UserRole)}
+                          required
+                          className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          {JOINABLE_ROLES.map((r) => (
+                            <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* 6. المراقب العام */}
+                    {joinCompanyId && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                          المراقب العام <span className="text-red-500">*</span>
+                        </label>
+                        {generalSupervisorsLoading ? (
+                          <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-400">
+                            <Loader2 size={14} className="animate-spin" />
+                            جاري البحث...
+                          </div>
+                        ) : generalSupervisors.length === 0 ? (
+                          <div className="px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-700">
+                            لا يوجد مراقب عام متاح في الشركة المختارة.
+                          </div>
+                        ) : (
+                          <select
+                            value={joinGeneralSupervisorId}
+                            onChange={(e) => setJoinGeneralSupervisorId(e.target.value)}
+                            required
+                            className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="">— اختر المراقب العام —</option>
+                            {generalSupervisors.map((g) => (
+                              <option key={g.uid} value={g.uid}>{g.displayName}</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    )}
+
+                    {/* 7. المراقب */}
+                    {joinGeneralSupervisorId && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                          المراقب <span className="text-red-500">*</span>
+                        </label>
+                        {supervisorsLoading ? (
+                          <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-400">
+                            <Loader2 size={14} className="animate-spin" />
+                            جاري البحث...
+                          </div>
+                        ) : supervisors.length === 0 ? (
+                          <div className="px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-700">
+                            لا يوجد مراقب متاح تحت هذا المراقب العام.
+                          </div>
+                        ) : (
+                          <select
+                            value={joinSupervisorId}
+                            onChange={(e) => setJoinSupervisorId(e.target.value)}
+                            required
+                            className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="">— اختر المراقب —</option>
+                            {supervisors.map((s) => (
+                              <option key={s.uid} value={s.uid}>{s.displayName}</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    )}
+
+                    {/* 8. رئيس المجموعة (للوكلاء والمراقبين ورؤساء المجموعات) */}
+                    {joinSupervisorId && (joinRole === 'agent' || joinRole === 'group_leader' || joinRole === 'supervisor') && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                          رئيس المجموعة <span className="text-red-500">*</span>
+                        </label>
+                        {groupLeadersLoading ? (
+                          <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-400">
+                            <Loader2 size={14} className="animate-spin" />
+                            جاري البحث...
+                          </div>
+                        ) : groupLeaders.length === 0 ? (
+                          <div className="px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-700">
+                            لا يوجد رئيس مجموعة متاح تحت هذا المراقب.
+                          </div>
+                        ) : (
+                          <select
+                            value={joinGroupLeaderId}
+                            onChange={(e) => setJoinGroupLeaderId(e.target.value)}
+                            required
+                            className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="">— اختر رئيس المجموعة —</option>
+                            {groupLeaders.map((l) => (
+                              <option key={l.uid} value={l.uid}>{l.displayName}</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Submit */}
+                    <button
+                      type="submit"
+                      disabled={joinLoading}
+                      className="w-full py-3 bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 text-white font-semibold rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                     >
-                      {JOINABLE_ROLES.map((r) => (
-                        <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* 6. المراقب العام */}
-                  {joinCompanyId && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                        المراقب العام <span className="text-red-500">*</span>
-                      </label>
-                      {generalSupervisorsLoading ? (
-                        <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-400">
-                          <Loader2 size={14} className="animate-spin" />
-                          جاري البحث...
-                        </div>
-                      ) : generalSupervisors.length === 0 ? (
-                        <div className="px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-700">
-                          لا يوجد مراقب عام متاح في الشركة المختارة.
-                        </div>
-                      ) : (
-                        <select
-                          value={joinGeneralSupervisorId}
-                          onChange={(e) => setJoinGeneralSupervisorId(e.target.value)}
-                          required
-                          className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                          <option value="">— اختر المراقب العام —</option>
-                          {generalSupervisors.map((g) => (
-                            <option key={g.uid} value={g.uid}>{g.displayName}</option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                  )}
-
-                  {/* 7. المراقب */}
-                  {joinGeneralSupervisorId && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                        المراقب <span className="text-red-500">*</span>
-                      </label>
-                      {supervisorsLoading ? (
-                        <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-400">
-                          <Loader2 size={14} className="animate-spin" />
-                          جاري البحث...
-                        </div>
-                      ) : supervisors.length === 0 ? (
-                        <div className="px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-700">
-                          لا يوجد مراقب متاح تحت هذا المراقب العام.
-                        </div>
-                      ) : (
-                        <select
-                          value={joinSupervisorId}
-                          onChange={(e) => setJoinSupervisorId(e.target.value)}
-                          required
-                          className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                          <option value="">— اختر المراقب —</option>
-                          {supervisors.map((s) => (
-                            <option key={s.uid} value={s.uid}>{s.displayName}</option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                  )}
-
-                  {/* 8. رئيس المجموعة (للوكلاء فقط) */}
-                  {joinSupervisorId && joinRole === 'agent' && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                        رئيس المجموعة <span className="text-red-500">*</span>
-                      </label>
-                      {groupLeadersLoading ? (
-                        <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-400">
-                          <Loader2 size={14} className="animate-spin" />
-                          جاري البحث...
-                        </div>
-                      ) : groupLeaders.length === 0 ? (
-                        <div className="px-4 py-3 rounded-xl border border-amber-200 bg-amber-50 text-sm text-amber-700">
-                          لا يوجد رئيس مجموعة متاح تحت هذا المراقب.
-                        </div>
-                      ) : (
-                        <select
-                          value={joinGroupLeaderId}
-                          onChange={(e) => setJoinGroupLeaderId(e.target.value)}
-                          required
-                          className="w-full px-4 py-3 rounded-xl border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                          <option value="">— اختر رئيس المجموعة —</option>
-                          {groupLeaders.map((l) => (
-                            <option key={l.uid} value={l.uid}>{l.displayName}</option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Submit */}
-                  <button
-                    type="submit"
-                    disabled={joinLoading}
-                    className="w-full py-3 bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 text-white font-semibold rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                  >
-                    {joinLoading && <Loader2 size={16} className="animate-spin" />}
-                    {joinLoading ? 'جاري الإرسال...' : 'إرسال طلب الانضمام'}
-                  </button>
-                </form>
-              )
+                      {joinLoading && <Loader2 size={16} className="animate-spin" />}
+                      {joinLoading ? 'جاري الإرسال...' : 'إرسال طلب الانضمام'}
+                    </button>
+                  </form>
+                )}
+              </>
             )}
           </div>
         </div>
