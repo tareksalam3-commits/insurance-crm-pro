@@ -80,15 +80,17 @@ export async function createUserWithSecondaryApp(
   try {
     const cred = await createUserWithEmailAndPassword(secondaryAuth, email, password);
     await updateProfile(cred.user, { displayName });
+    // الكتابة في Firestore بـ db الأساسي (مش secondaryAuth)
+    // بما أن الـ users rule تسمح للـ isManager() بالإنشاء، المستخدم المسجّل الحالي هيكتب
     await setDoc(doc(db, 'users', cred.user.uid), {
-      uid: cred.user.uid,
+      uid:          cred.user.uid,
       email,
       displayName,
       role,
       companyId,
       ...(managerId ? { managerId } : {}),
-      status: 'active',
-      createdAt: serverTimestamp(),
+      status:       'active',
+      createdAt:    serverTimestamp(),
     });
     return cred.user.uid;
   } finally {
@@ -157,18 +159,23 @@ export async function submitRegistrationRequest(
   ));
 
   const recipients = [...gsSnap.docs, ...smSnap.docs];
-  await Promise.all(recipients.map((d) =>
-    addDoc(collection(db, 'notifications'), {
-      type:          'registration_request',
-      recipientId:   d.id,
-      companyId:     data.companyId,
-      requestId:     ref.id,
-      applicantName: data.displayName,
-      requestedRole: data.requestedRole,
-      read:          false,
-      createdAt:     serverTimestamp(),
-    })
-  ));
+  // الإشعارات اختيارية — فشلها لا يؤثر على نجاح الطلب
+  try {
+    await Promise.all(recipients.map((d) =>
+      addDoc(collection(db, 'notifications'), {
+        type:          'registration_request',
+        recipientId:   d.id,
+        companyId:     data.companyId,
+        requestId:     ref.id,
+        applicantName: data.displayName,
+        requestedRole: data.requestedRole,
+        read:          false,
+        createdAt:     serverTimestamp(),
+      })
+    ));
+  } catch (notifErr) {
+    console.warn('تحذير: فشل إرسال الإشعارات، لكن الطلب تم بنجاح:', notifErr);
+  }
 
   return ref.id;
 }
@@ -214,8 +221,9 @@ export async function approveRegistrationRequest(
   const reqSnap = await getDoc(doc(db, 'registrationRequests', request.id));
   const pwd: string = (reqSnap.data() as any)?._pwd ?? `Tmp_${Math.random().toString(36).slice(2, 10)}!`;
 
-  const managerId   = assignData?.supervisorId   || assignData?.groupLeaderId   || '';
-  const managerName = assignData?.supervisorName || assignData?.groupLeaderName || '';
+  // المرجع المباشر للوكيل = رئيس المجموعة إن وُجد، وإلا المراقب
+  const directManagerId   = assignData?.groupLeaderId   || assignData?.supervisorId   || '';
+  const directManagerName = assignData?.groupLeaderName || assignData?.supervisorName || '';
 
   const newUid = await createUserWithSecondaryApp(
     request.email,
@@ -223,23 +231,26 @@ export async function approveRegistrationRequest(
     request.displayName,
     request.requestedRole,
     request.companyId,
-    managerId || undefined,
+    directManagerId || undefined,
   );
 
-  // إضافة في agents
+  // إضافة في agents — نخزن supervisorId و groupLeaderId منفصلين للفلترة الصحيحة
   await addDoc(collection(db, 'agents'), {
-    uid:            newUid,
-    companyId:      request.companyId,
-    name:           request.displayName,
-    email:          request.email,
-    phone:          request.phone ?? '',
-    group:          managerName,
-    productionType: request.requestedRole,
-    target:         DEFAULT_TARGETS[request.requestedRole] ?? 0,
-    supervisorId:   managerId,
-    managerName:    managerName,
-    status:         'active',
-    createdAt:      serverTimestamp(),
+    uid:                newUid,
+    companyId:          request.companyId,
+    name:               request.displayName,
+    email:              request.email,
+    phone:              request.phone ?? '',
+    group:              directManagerName,
+    productionType:     request.requestedRole,
+    target:             DEFAULT_TARGETS[request.requestedRole] ?? 0,
+    // supervisorId = groupLeaderId إن وُجد — لفلترة group_leader
+    supervisorId:       assignData?.groupLeaderId  || assignData?.supervisorId || '',
+    // parentSupervisorId = uid المراقب — لفلترة supervisor
+    parentSupervisorId: assignData?.supervisorId   ?? '',
+    managerName:        directManagerName,
+    status:             'active',
+    createdAt:          serverTimestamp(),
   });
 
   // تحديث حالة الطلب + حذف كلمة السر المؤقتة

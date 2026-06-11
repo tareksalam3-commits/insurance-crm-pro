@@ -23,13 +23,18 @@ export function useAgents(companyId?: string) {
 
     const unsub = subscribeToAgents((data) => {
       let result = data;
-      // المراقب يشوف وكلائه فقط (supervisorId == uid)
-      if (user.role === 'supervisor' || user.role === 'general_supervisor') {
+      if (user.role === 'group_leader') {
+        // رئيس المجموعة يشوف الوكلاء اللي supervisorId بتاعهم = uid بتاعه
         result = data.filter((a) => a.supervisorId === user.uid);
-      }
-      // رئيس المجموعة يشوف أعضاء مجموعته فقط
-      else if (user.role === 'group_leader') {
-        result = data.filter((a) => a.supervisorId === user.uid);
+      } else if (user.role === 'supervisor') {
+        // المراقب يشوف الوكلاء اللي supervisorId أو parentSupervisorId = uid بتاعه
+        result = data.filter((a) =>
+          a.supervisorId === user.uid ||
+          (a as any).parentSupervisorId === user.uid
+        );
+      } else if (user.role === 'general_supervisor') {
+        // المراقب العام يشوف كل وكلاء الشركة (sales_manager كذلك)
+        result = data;
       }
       // sales_manager و super_admin يشوفوا الكل
       setAgents(result);
@@ -66,7 +71,21 @@ export function useClients(filters?: { agentName?: string; agentId?: string; gro
     const unsub = subscribeToAgents((allAgents) => {
       const ids = new Set<string>(
         allAgents
-          .filter((a) => a.supervisorId === user.uid)
+          .filter((a) => {
+            if (user.role === 'group_leader') {
+              // رئيس المجموعة: الوكلاء اللي supervisorId = uid بتاعه
+              return a.supervisorId === user.uid;
+            }
+            if (user.role === 'supervisor') {
+              // المراقب: الوكلاء اللي supervisorId أو parentSupervisorId = uid بتاعه
+              return a.supervisorId === user.uid || (a as any).parentSupervisorId === user.uid;
+            }
+            if (user.role === 'general_supervisor') {
+              // المراقب العام يشوف كل وكلاء الشركة
+              return true;
+            }
+            return a.supervisorId === user.uid;
+          })
           .map((a) => a.uid)
           .filter((id): id is string => !!id)
       );

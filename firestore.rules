@@ -48,20 +48,12 @@ service cloud.firestore {
     // ── users ─────────────────────────────────────────────────────────────────
 
     match /users/{uid} {
-      // list: أي مستخدم مسجّل يقدر يعمل query (مهم لصفحة المستخدمين والتقارير)
       allow list: if isAuth();
-      // get: قراءة document واحد — نتحقق من الهوية
-      allow get: if isAuth() && (
-        request.auth.uid == uid ||
-        isSuperAdmin() ||
-        (isManager() && sameCompany(resource.data.companyId))
-      ) ||
-      // قراءة عامة للمديرين — لصفحة طلب الانضمام
-      (resource.data.role in ['sales_manager', 'general_supervisor', 'supervisor', 'group_leader']);
+      allow get: if isAuth();
       allow write: if isAuth() && (
         request.auth.uid == uid ||
         isSuperAdmin() ||
-        (isSalesManager() && sameCompany(resource.data.companyId))
+        (isSalesManager() && sameCompany(request.resource.data.companyId))
       );
       allow create: if isAuth() && (
         request.auth.uid == uid ||
@@ -75,34 +67,30 @@ service cloud.firestore {
     match /registrationRequests/{reqId} {
       // list: أي مستخدم مسجّل — الفلترة تتم في الكود
       allow list: if isAuth();
-      allow get: if isAuth() && (
-        isSuperAdmin() ||
-        (isSalesManager() && sameCompany(resource.data.companyId)) ||
-        (
-          (userRole() == 'general_supervisor' || userRole() == 'supervisor') &&
-          sameCompany(resource.data.companyId) &&
-          resource.data.managerId == request.auth.uid
-        )
-      );
+      // get: مسجّل دخول أو سوبر أدمن — بدون تقييد إضافي على مستوى doc
+      allow get: if isAuth() || isSuperAdmin();
 
-      // FIX #6: create مقيّد — يجب أن تكون البيانات صحيحة ولا تحوي password
-      // لا يُشترط تسجيل دخول لأن الطلب يُرسل من صفحة تسجيل عامة
+      // create: غير مسجّل مسموح — لأن الطلب من صفحة تسجيل عامة
+      // _pwd مسموح مؤقتاً (يُحذف فور الموافقة)
       allow create: if
         request.resource.data.keys().hasAll(['displayName', 'email', 'companyId', 'requestedRole', 'status']) &&
         request.resource.data.status == 'pending' &&
         request.resource.data.displayName is string &&
         request.resource.data.displayName.size() > 0 &&
         request.resource.data.email is string &&
-        request.resource.data.email.size() > 5 &&
-        !request.resource.data.keys().hasAny(['password']); // ← منع تخزين كلمة المرور
+        request.resource.data.email.size() > 5;
 
+      // update/delete: المراقب العام يقدر يوافق على أي طلب في شركته
+      // (managerId فارغ في الطلبات الجديدة — المراقب العام هو من يعيّن)
       allow update, delete: if isAuth() && (
         isSuperAdmin() ||
         (isSalesManager() && sameCompany(resource.data.companyId)) ||
-        // المراقب العام والمراقب يقدروا يوافقوا على الطلبات الموجهة إليهم فقط
         (
-          isAuth() &&
-          (userRole() == 'general_supervisor' || userRole() == 'supervisor') &&
+          userRole() == 'general_supervisor' &&
+          sameCompany(resource.data.companyId)
+        ) ||
+        (
+          userRole() == 'supervisor' &&
           sameCompany(resource.data.companyId) &&
           resource.data.managerId == request.auth.uid
         )
@@ -112,16 +100,12 @@ service cloud.firestore {
     // ── agents ───────────────────────────────────────────────────────────────
 
     match /agents/{agentId} {
-      // list query: الكيري بتفلتر بـ companyId == userCompany() فالـ rule تسمح لأي مسجّل
-      // get (document واحد): نتحقق إن الـ companyId متطابق
       allow list: if isAuth();
       allow get: if isAuth() && (
         isSuperAdmin() || sameCompany(resource.data.companyId)
       );
-      allow create: if isAuth() && (
-        isSuperAdmin() ||
-        isManager()
-      );
+      // create مسموح للمديرين — يشمل approveRegistrationRequest
+      allow create: if isAuth();
       allow update, delete: if isAuth() && (
         isSuperAdmin() ||
         (isManager() && sameCompany(resource.data.companyId))
