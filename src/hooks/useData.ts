@@ -175,8 +175,10 @@ export function useRegistrationRequests() {
     setLoading(true);
 
     const companyFilter = user.role === 'super_admin' ? undefined : user.companyId;
-    const managerFilter = (user.role === 'general_supervisor' || user.role === 'supervisor')
-      ? user.uid : undefined;
+
+    // المراقب العام يرى كل طلبات الشركة (هو المسؤول عن الموافقة والتعيين)
+    // المراقب يرى الطلبات الموجهة إليه فقط
+    const managerFilter = user.role === 'supervisor' ? user.uid : undefined;
 
     const unsub = subscribeToRegistrationRequests(
       (data) => {
